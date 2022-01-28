@@ -1,0 +1,4 @@
+.stamp.verilate
+.vscode/*
+
+obj_dir/*

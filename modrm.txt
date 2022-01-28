@@ -1,0 +1,151 @@
+Using mov rm,r 
+
+100010dw -> ReadModRM (1f5 is free) (set return to 000) d bit 0 means we need to do a WRITE bus op if mod!=11 else we need to do a readop if mod!=11
+
+M == low 3 bits of instruction, or rm field of modrm byte, or OPR if mod!=11
+R == reg of modrm
+
+1f5  Q -> MODRM     
+    Q->MODRM
+    if (MOD==11)
+        instruction[2:0]==rm field
+        RTN
+1f6
+    jumpToMODoffset
+1f7
+
+100010dw ddrrrmmm       dd = mod 11 = register
+
+16-bit	B.R/M
+Mod	        x.000               x.001               x.010               x.011               x.100               x.101               x.110               x.111
+00          [BX + SI]           [BX + DI]           [BP + SI]           [BP + DI]           [SI]                [DI]                [disp16]            [BX]
+01          [BX + SI + disp8]   [BX + DI + disp8]   [BP + SI + disp8]   [BP + DI + disp8]   [SI + disp8]        [DI + disp8]        [BP + disp8]        [BX + disp8]
+10          [BX + SI + disp16]  [BX + DI + disp16]  [BP + SI + disp16]  [BP + DI + disp16]  [SI + disp16]       [DI + disp16]       [BP + disp16]       [BX + disp16]
+11          AX                  CX                  DX                  BX                  SP                  BP                  SI                  DI
+
+
+        Displacement                                            6
+        Base or Index (BX,BP,SI,DI)                             5
+        Displacement+(Base or Index)                            9
+        Base+Index (BP+DI,BX+SI)                                7
+        Base+Index (BP+SI,BX+DI)                                8
+        Base+Index+Displacement (BP+DI,BX+SI)                  11
+        Base+Index+Displacement (BP+SI+disp,BX+DI+disp)        12
+
+000 A CD F H J L  OPQR  U       R     -> tmpb      4   none  WB,NX       0100010??.00  MOV rm<->r
+
+    if (d bit in instruction == 0)
+    {
+        readMtmpb
+    }
+    else
+    {
+        readRtmpb
+    }
+
+
+001  B  E GHI  L  OPQR          tmpb  -> M         4   none  RNI                      
+
+    if (d bit in instruction == 0)
+    {
+        tmpbwriteM
+        if Mod==11
+            RNI
+        else
+            do next and end
+    }
+    else
+    {
+        tmpbwriteR
+        RNI
+    }
+
+002 ABC  F HI  LM O QRSTU                          6   W     DD,P0                     
+    write DD,P0  (DS with override)
+
+
+003   CD FG IJ L N     TU       IJ    -> tmpa      5   UNC   EAOFFSET                  [SI]
+01f   CD FGHIJ L N     TU       IK    -> tmpa      5   UNC   EAOFFSET                  [DI]
+023   CD FGHI  L N     TU       MP    -> tmpa      5   UNC   EAOFFSET                  [BP]
+037   CD FGH J L N     TU       HL    -> tmpa      5   UNC   EAOFFSET                  [BX]
+1d4   CD FGH J L  OPQRSTU       HL    -> tmpa                            101000000.00  [BX+SI]
+1d5 A CD FG IJ L  OPQRSTU       IJ    -> tmpb                                          
+1d6   CD F  I  L N     TU       SIGMA -> tmpa      5   UNC   EAOFFSET                  
+1d7   CD FGHI  L  OPQRSTU       MP    -> tmpa                                          [BP+DI]
+1d8 A CD FGHIJ L  OPQRSTU       IK    -> tmpb                            101000000.01  
+1d9   CD F  I  L N     TU       SIGMA -> tmpa      5   UNC   EAOFFSET                  
+1da   CD FGH J   N    S         HL    -> tmpa      0   UNC      4                      [BX+DI]
+1db   CD FGHI    N      U       MP    -> tmpa      0   UNC      1                      [BP+SI]
+1dc   C E  HIJ L  OPQRSTU       Q     -> tmpaL                           101000000.10  [iw]
+1dd  BC E  HIJ L N    S         Q     -> tmpaH     5   UNC   EAFINISH                  
+1de A C E  HIJ      QRS         Q     -> tmpbL     0   MOD1    12                      [i]
+1df ABC E  HIJ L  OPQRSTU       Q     -> tmpbH                                         
+1e0   CD F  I  L N    S         SIGMA -> tmpa      5   UNC   EAFINISH    101000000.11  
+1e1 A C   G I  LM    RSTU       tmpa  -> IND       6   R     DD,P0                     EALOAD
+1e2 A CD    IJ L  OPQRS         OPR   -> tmpb      4   none  RTN                       
+1e3 A C   G I  L  OPQRS         tmpa  -> IND       4   none  RTN                       EADONE
+
+EAOFFSET added to flow 1f7
+EAFINISH addde to flow 1f2
+
+mov bl, al                          [88 C3]
+1f5 000 001 1fd
+
+mov al, bl                          [8A C3]
+1f5 000 001 1fd
+
+mov BYTE PTR [0x8899], al           [88 06 99 88]
+
+1f5 1f6 1dc 1dd 1e3 000 001 002 1fd                             (+5)         (should be 6)
+
+mov al, BYTE PTR [0x8899]           [8A 06 99 88]
+
+1f5 1f6 1dc 1dd 1e1 1e2 000 001 1fd
+
+mov BYTE PTR [BX], al               [88 07]
+
+1f5 1f6 037 1e3 000 001 002 1fd                                 (+4)
+
+mov al, BYTE PTR [BX]               [8A 07]
+
+1f5 1f6 037 1e1 1e2 000 001 1fd
+
+mov BYTE PTR [bx + di], al          [88 01]
+
+1f5 1f6 1da 1d8 1d9 1e3 000 001 002 1fd
+
+mov al, BYTE PTR [bx + di]          [8A 01]
+
+1f5 1f6 1da 1d8 1d9 1e1 1e2 000 001 1fd
+
+mov BYTE PTR [bx + FF80], al        [88 47 80]
+
+1f5 1f6 037 1de 1e0 1e3 000 001 002 1fd
+
+mov al, BYTE PTR [bx + FF80],al     [8A 47 80]
+
+1f5 1f6 037 1de 1e0 1e1 1e2 000 001 1fd
+
+mov BYTE PTR [bx + 1234], al        [88 87 34 12]
+
+1f5 1f6 037 1de 1df 1e0 1e3 000 001 002 1fd
+
+mov al, BYTE PTR [bx + 1234]        [8A 87 34 12]
+
+1f5 1f6 037 1de 1df 1e0 1e1 1e2 000 001 1fd
+
+mov BYTE PTR [BP + SI - 1], al      [88 42 FF]
+
+1f5 1f6 1db 1d5 1d6 1de 1e0 1e3 000 001 002 1fd
+
+mov al, BYTE PTR [BP + SI - 1]      [8A 42 FF]
+
+1f5 1f6 1db 1d5 1d6 1de 1e0 1e1 1e2 000 001 1fd
+
+mov BYTE PTR [BX + SI + 1234]       [88 80 34 12]
+
+1f5 1f6 1d7 1d8 1d9 1de 1df 1e0 1e3 000 001 002 1fd
+
+mov al, BYTE PTR [BX + SI + 1234]   [8A 80 34 12]
+
+1f5 1f6 1d7 1d8 1d9 1de 1df 1e0 1e1 1e2 000 001 1fd     (+9)

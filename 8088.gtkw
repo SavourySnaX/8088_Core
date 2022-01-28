@@ -1,0 +1,154 @@
+[*]
+[*] GTKWave Analyzer v3.3.104 (w)1999-2020 BSI
+[*] Wed Jan 26 12:17:59 2022
+[*]
+[dumpfile] "/home/snax/BackedUp/fpga/verilator/8088konix/trace.vcd"
+[dumpfile_mtime] "Wed Jan 26 12:15:58 2022"
+[dumpfile_size] 33782
+[savefile] "/home/snax/BackedUp/fpga/verilator/8088konix/8088.gtkw"
+[timestart] 817
+[size] 5052 2752
+[pos] -1 -1
+*-8.000000 4670 8990 12830 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] TOP.
+[treeopen] TOP.top.
+[treeopen] TOP.top.eu.
+[sst_width] 388
+[signals_width] 467
+[sst_expanded] 1
+[sst_vpaned_height] 1697
+@200
+-PINS
+@28
+TOP.CLKx4
+TOP.CLK
++{BIU TICK} TOP.top.biu.tick
++{EU TICK} TOP.top.eu.tick
+TOP.ALE
+@22
+TOP.A[19:8]
+TOP.enAD[7:0]
+TOP.outAD[7:0]
+TOP.inAD[7:0]
+@28
+TOP.DEN_n
+TOP.DTR
+TOP.HOLD
+TOP.HOLDA
+TOP.INTA_n
+TOP.INTR
+TOP.IOM
+TOP.NMI
+TOP.RD_n
+TOP.WR_n
+TOP.READY
+TOP.RESET
+@200
+-BIU
+@28
+TOP.top.biu.clockstate[2:0]
+@22
+TOP.top.biu.address[19:0]
+@24
+TOP.top.biu.qSize[2:0]
+@28
+TOP.top.biu.prefetchEmpty
+TOP.top.biu.prefetchFull
+@22
+TOP.top.biu.prefetchQueue(0)[7:0]
+TOP.top.biu.prefetchQueue(1)[7:0]
+TOP.top.biu.prefetchQueue(2)[7:0]
+TOP.top.biu.prefetchQueue(3)[7:0]
+@28
+TOP.top.biu.prefetchReadAddr[2:0]
+TOP.top.biu.prefetchWriteAddr[2:0]
+@22
+TOP.top.biu.prefetchTop[7:0]
+@28
+TOP.top.biu.indirectBusOpInProgress
+@29
+TOP.top.biu.indirectBusCycle
+@28
+TOP.top.biu.suspending
+TOP.top.eu.readTop
+TOP.top.biu.indirect
+TOP.top.eu.indirectSeg[2:0]
+TOP.top.biu.ind_ioMreq
+TOP.top.biu.ind_readWrite
+TOP.top.biu.ind_byteWord
+TOP.top.biu.suspend
+TOP.top.biu.correct
+TOP.top.biu.flush
+TOP.top.eu.latchCS
+TOP.top.eu.latchDS
+TOP.top.eu.latchES
+TOP.top.eu.latchSS
+TOP.top.eu.latchPC
+TOP.top.biu.indSegCS
+TOP.top.biu.indSegDS
+TOP.top.biu.indSegES
+TOP.top.biu.indSegSS
+TOP.top.biu.indSegZero
+@22
+TOP.top.biu.addressSeg[19:0]
+TOP.top.biu.REGISTER_CS[15:0]
+TOP.top.biu.REGISTER_DS[15:0]
+TOP.top.biu.REGISTER_ES[15:0]
+TOP.top.biu.REGISTER_SS[15:0]
+TOP.top.biu.REGISTER_IP[15:0]
+@200
+-EU
+@22
+TOP.top.eu.instruction[7:0]
+TOP.top.eu.modrm[7:0]
+TOP.top.eu.executionState[8:0]
+TOP.top.eu.IND[15:0]
+@28
+TOP.top.biu.indirectSeg[2:0]
+@22
+TOP.top.eu.OPRr[15:0]
+TOP.top.eu.OPRw[15:0]
+@200
+-ALU
+@22
+TOP.top.eu.myalu.Ai[15:0]
+TOP.top.eu.myalu.Bi[15:0]
+@28
+TOP.top.eu.myalu.F_Overflow
+TOP.top.eu.myalu.F_Neg
+TOP.top.eu.myalu.F_Zero
+TOP.top.eu.myalu.F_Aux
+TOP.top.eu.myalu.F_Parity
+TOP.top.eu.myalu.F_Carry
+@200
+-INTERNAL REGISTERS
+@22
+TOP.top.eu.tmpa[15:0]
+TOP.top.eu.tmpb[15:0]
+TOP.top.eu.tmpc[15:0]
+TOP.top.eu.SIGMA[15:0]
+@200
+-REGISTERS
+@22
+TOP.top.eu.AX[15:0]
+TOP.top.eu.CX[15:0]
+TOP.top.eu.DX[15:0]
+TOP.top.eu.BX[15:0]
+TOP.top.eu.SP[15:0]
+TOP.top.eu.BP[15:0]
+TOP.top.eu.SI[15:0]
+TOP.top.eu.DI[15:0]
+TOP.top.eu.FLAGS[15:0]
+@200
+-DeDupe
+@28
+TOP.top.eu.code_M2TmpB
+@22
+TOP.top.eu.code_M[3:0]
+@28
+TOP.top.eu.code_R2TmpB
+TOP.top.eu.code_Sigma2M
+TOP.top.eu.code_TmpB2M
+TOP.top.eu.code_TmpB2R
+[pattern_trace] 1
+[pattern_trace] 0
