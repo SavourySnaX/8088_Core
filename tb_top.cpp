@@ -13,7 +13,7 @@
 
 #define CLK_DIVISOR 8
 
-#define NO_TRACE    (1 && UNIT_TEST) | (!UNIT_TEST)
+#define NO_TRACE    (0 && UNIT_TEST) | (!UNIT_TEST)
 
 #define TICK_LIMIT  0//300000
 
@@ -47,15 +47,6 @@ enum ERegisterNum
     SI = 6,
     DI = 7,
 };
-
-
-
-// mov r,i
-// 1011wRRR
-
-
-// Test MOV rm <-> m
-// 100000dw mmRRRMMM
 
 int NumMatch(const char* testData, char code)
 {
@@ -382,6 +373,11 @@ void RegisterNum(int regInitVal)
     tb->top->biu->REGISTER_SS=0x5000;
 }
 
+void RegisterNumFlags(int regInitVal)
+{
+    RegisterNum(regInitVal);
+    tb->top->eu->FLAGS=regInitVal;
+}
 
 void SetFlags(int initFlags)
 {
@@ -503,6 +499,7 @@ int TestFlags(int hFlags,int tFlags, int flagMask)
 
 }
 
+//	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(dst,src,7), C AS CARRY(7), P AS PARITYEVEN { (dst + src)+carry }->res;
 int CheckAddFlagsW(int a,int b, int flagMask)
 {
     unsigned long ret;
@@ -534,31 +531,15 @@ int CheckSubFlagsW(int a,int b, int flagMask)
 }
 
 /*
-FUNCTION INTERNAL	res[8]		IncrementByte		val[8]
+FUNCTION INTERNAL	res[16]		OrWord			dst[16],src[16]
 {
-	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(val,$01,7), P AS PARITYEVEN { val + 1 }->res;
-}
-
-FUNCTION INTERNAL	res[8]		DecrementByte		val[8]
-{
-	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(val,$01,7), P AS PARITYEVEN { val - 1 }->res;
-}
-
-FUNCTION INTERNAL	res[16]		DecrementWord		val[16]
-{
-	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(val,$0001,15) { val - 1 }->res;
+	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET { dst | src }->res;
 	AFFECT P AS PARITYEVEN { res[0..7] };
 }
 
-FUNCTION INTERNAL	res[16]		AddWord			dst[16],src[16],carry[1]
+FUNCTION INTERNAL	res[8]		OrByte			dst[8],src[8]
 {
-	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(dst,src,15), C AS CARRY(15) { (dst + src)+carry }->res;
-	AFFECT P AS PARITYEVEN { res[0..7] };
-}
-
-FUNCTION INTERNAL	res[8]		AddByte			dst[8],src[8],carry[1]
-{
-	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(dst,src,7), C AS CARRY(7), P AS PARITYEVEN { (dst + src)+carry }->res;
+	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET, P AS PARITYEVEN { dst | src }->res;
 }
 
 FUNCTION INTERNAL	res[16]		SubWord			dst[16],src[16],carry[1]
@@ -581,17 +562,6 @@ FUNCTION INTERNAL	res[16]		AndWord			dst[16],src[16]
 FUNCTION INTERNAL	res[8]		AndByte			dst[8],src[8]
 {
 	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET, P AS PARITYEVEN { dst & src }->res;
-}
-
-FUNCTION INTERNAL	res[16]		OrWord			dst[16],src[16]
-{
-	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET { dst | src }->res;
-	AFFECT P AS PARITYEVEN { res[0..7] };
-}
-
-FUNCTION INTERNAL	res[8]		OrByte			dst[8],src[8]
-{
-	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET, P AS PARITYEVEN { dst | src }->res;
 }
 
 FUNCTION INTERNAL	res[16]		XorWord			dst[16],src[16]
@@ -1026,11 +996,461 @@ int ValidateMovRMImmediate(const char* testData, int counter, int testCnt, int r
     return hValue==immL;
 }
 
+int CheckAddResultW(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "add %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckAddResultB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "add %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckOrResultW(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "or %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckOrResultB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "or %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckAdcResultW(int a,int b, int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "adc %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "adc %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckAdcResultB(int a,int b, int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "adc %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "adc %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckSbbResultW(int a,int b, int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "sbb %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "sbb %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckSbbResultB(int a,int b, int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "sbb %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "sbb %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckAndResultW(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "and %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckAndResultB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "and %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckSubResultW(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "sub %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckSubResultB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "sub %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckXorResultW(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "xor %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckXorResultB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "xor %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckCmpResultW(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "cmp %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckCmpResultB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "cmp %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckALUOp(int word, int aluOp, int carryIn, int A, int B, int result)
+{
+    int res;
+    if (word)
+    {
+        switch (aluOp)
+        {
+            case 0:
+                return CheckAddResultW(A,B,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            case 1:
+                return CheckOrResultW(A,B,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,result);        // don't validate U flags
+            case 2:
+                return CheckAdcResultW(A,B,carryIn, FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            case 3:
+                return CheckSbbResultW(A,B,carryIn, FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            case 4:
+                return CheckAndResultW(A,B,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,result);        // don't validate U flags
+            case 5:
+                return CheckSubResultW(A,B,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            case 6:
+                return CheckXorResultW(A,B,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,result);        // don't validate U flags
+            case 7:
+                return CheckCmpResultW(A,B,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            default:
+                break;
+        }
+    }
+    else
+    {
+        switch (aluOp)
+        {
+            case 0:
+                return CheckAddResultB(A,B,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            case 1:
+                return CheckOrResultB(A,B,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,result);        // don't validate U flags
+            case 2:
+                return CheckAdcResultB(A,B,carryIn, FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            case 3:
+                return CheckSbbResultB(A,B,carryIn, FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            case 4:
+                return CheckAndResultB(A,B,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,result);        // don't validate U flags
+            case 5:
+                return CheckSubResultB(A,B,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            case 6:
+                return CheckXorResultB(A,B,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,result);        // don't validate U flags
+            case 7:
+                return CheckCmpResultB(A,B,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+            default:
+                break;
+        }
+    }
+    return 0;
+}
+
+int ValidateAluAImmediate(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int alu = Extract(testData,'A',counter,testCnt);
+    int immL = Extract(testData,'L', counter, testCnt);
+    int immH = Extract(testData,'H', counter, testCnt);
+
+    return CheckALUOp(word, alu, regInitVal, RegisterNumInitial(0), ((immH<<8)|immL), tb->top->eu->AX);
+}
+
+int ValidateAluRMR(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int direction = Extract(testData,'D',counter,testCnt);
+    int alu = Extract(testData,'A',counter,testCnt);
+    int mod = regInitVal;
+    int reg = Extract(testData,'R',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(0,word,mod,reg,RM,dispL,dispH);
+    int opBValue = FetchSourceValue(1,word,mod,reg,RM,dispL,dispH);
+
+    if (direction!=1)
+    {
+        int t = opAValue;
+        opAValue=opBValue;
+        opBValue=t;
+    }
+    int hValue;
+
+    if (alu!=7)
+        hValue = FetchDestValue(direction,word,mod,reg,RM,dispL,dispH);
+    else
+        hValue = opAValue;
+
+    return CheckALUOp(word, alu, 0, opAValue, opBValue, hValue);
+}
+
 
 #define TEST_MULT 4
 
 const char* testArray[]={ 
-#if 1
+#if 0
     "10110RRR LLLLLLLL ",                                       (const char*)ValidateMovRImmediateByte,         (const char*)DefaultTestInit,   (const char*)0x0000,      // mov r,i (byte)
     "10111RRR LLLLLLLL HHHHHHHH ",                              (const char*)ValidateMovRImmediateWord,         (const char*)DefaultTestInit,   (const char*)0x0000,      // mov r,i (word)
     "01000RRR ",                                                (const char*)ValidateIncWordRegister,           (const char*)DefaultTestInit,   (const char*)0x0000,      // inc r (word)
@@ -1056,6 +1476,11 @@ const char* testArray[]={
     "001RR110 10001000 00000110 llllllll hhhhhhhh ",            (const char*)ValidateMovMRMRegPrefixed,         (const char*)RegisterNum,       (const char*)0x1000,      // segment prefix (via mov prefix:[disp],al)
     "1100011W 11000mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateMovRMImmediate,            (const char*)RegisterNum,       (const char*)0x0003,      // mov rm,i (byte/word) (reg)
     "1100011W 10000mmm llllllll hhhhhhhh LLLLLLLL HHHHHHHH ",   (const char*)ValidateMovRMImmediate,            (const char*)RegisterNum,       (const char*)0x0002,      // mov rm,i (byte/word) (mem)
+    "00AAA10W LLLLLLLL HHHHHHHH ",                              (const char*)ValidateAluAImmediate,             (const char*)RegisterNumFlags,  (const char*)(0),         // alu A,i  (carry clear)
+    "00AAA10W LLLLLLLL HHHHHHHH ",                              (const char*)ValidateAluAImmediate,             (const char*)RegisterNumFlags,  (const char*)(FLAG_C),    // alu A,i  (carry set)
+    "00AAA0DW 11RRRmmm ",                                       (const char*)ValidateAluRMR,                    (const char*)RegisterNum,       (const char*)0x0003,      // mov rm,i (byte/word) (reg) (no need to check Carry in)
+    "00AAA0DW 01RRRmmm llllllll ",                              (const char*)ValidateAluRMR,                    (const char*)RegisterNum,       (const char*)0x0001,      // mov rm,i (byte/word) (mem) (no need to check Carry in)
+    "11111100 ",                                                (const char*)ValidateFlagClear,                 (const char*)SetFlags,          (const char*)(FLAG_D),    // cld
 #endif
     0
 };
@@ -1220,6 +1645,7 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
             {
                 captureIdx=0;
                 testState++;
+                tb->top->eu->TRACE_MODE=1;  // prevent further instruction execution
             }
             break;
         case 4:

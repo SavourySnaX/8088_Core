@@ -41,6 +41,8 @@ module execution
     output reg ind_byteWord      // indirect bus byte/word request
 );
 
+reg TRACE_MODE /* verilator public */;
+
 reg [8:0] executionState /* verilator public */;
 reg [7:0] instruction /* verilator public */;
 reg [7:0] modrm /* verilator public */;
@@ -74,10 +76,16 @@ reg [1:0]   cope_SR;
 reg         code_TmpB2M;
 reg         code_TmpB2R;
 reg         code_Sigma2M;
+reg         code_Sigma2R;
+reg         code_M2TmpA;
 reg         code_M2TmpB;
+reg         code_R2TmpA;
 reg         code_R2TmpB;
 reg         code_M2SR;
 reg         code_SR2M;
+reg [15:0]  code_FLAGS;
+
+reg readModifyWrite;
 
 reg [1:0] aluAselect;  // 00 tmpa 01 tmpb 10 tmpc 11 ...
 reg [1:0] aluBselect;
@@ -93,7 +101,17 @@ parameter FLAG_A_IDX = 4;
 parameter FLAG_Z_IDX = 6;
 parameter FLAG_S_IDX = 7;
 parameter FLAG_I_IDX = 9;
+parameter FLAG_D_IDX = 10;
 parameter FLAG_O_IDX = 11;
+
+parameter FLAG_C_MSK = 16'h0001<<FLAG_C_IDX;
+parameter FLAG_P_MSK = 16'h0001<<FLAG_P_IDX;
+parameter FLAG_A_MSK = 16'h0001<<FLAG_A_IDX;
+parameter FLAG_Z_MSK = 16'h0001<<FLAG_Z_IDX;
+parameter FLAG_S_MSK = 16'h0001<<FLAG_S_IDX;
+parameter FLAG_I_MSK = 16'h0001<<FLAG_I_IDX;
+parameter FLAG_D_MSK = 16'h0001<<FLAG_D_IDX;
+parameter FLAG_O_MSK = 16'h0001<<FLAG_O_IDX;
 
 parameter SEG_ZERO = 3'b100;
 parameter SEG_CS = 3'b001;
@@ -130,6 +148,7 @@ assign aluB = (tmpa & {16{aluBselect==2'b00}}) |
 
 function automatic [8:0] FetchExecStateFromInstruction(input [7:0] inst);
 begin
+    readModifyWrite = 0;
     if (inst[7:2] == 6'b100010)                              // MOV rmw<->r
     begin
         PostEffectiveAddressReturn = 9'h000;
@@ -164,8 +183,21 @@ begin
         FLAGS[FLAG_I_IDX]<=0;
         FetchExecStateFromInstruction = 9'h143;          // RNI
     end
+    else if (inst == 8'b11111100)                        // CLD (not microcoded)
+    begin
+        FLAGS[FLAG_D_IDX]<=0;
+        FetchExecStateFromInstruction = 9'h143;          // RNI
+    end
     else if ({inst[7:5],inst[2:0]} == 6'b001110)         // SEGMENT PREFIX
         FetchExecStateFromInstruction = 9'h005;
+    else if ({inst[7:6],inst[2:1]} == 4'b0010)           // alu A,i
+        FetchExecStateFromInstruction = 9'h018;
+    else if ({inst[7:6],inst[2]} == 3'b000)              // alu rm<->r
+    begin
+        readModifyWrite = 1;
+        PostEffectiveAddressReturn = 9'h008;
+        FetchExecStateFromInstruction = 9'h1f5;
+    end
     else
         FetchExecStateFromInstruction = 9'h1FD;
 end
@@ -271,7 +303,7 @@ begin
         
         executionState <= 9'h1E4;   // RESET
         instruction <= 8'h90;
-
+        TRACE_MODE<=0;
     end
     else
     begin
@@ -301,10 +333,14 @@ begin
             code_TmpB2M=0;      // Can be merged into a single value ultimately (ie enable bits)
             code_TmpB2R=0;      // Can be merged into a single value ultimately (ie enable bits)
             code_Sigma2M=0;     // Can be merged into a single value ultimately (ie enable bits)
+            code_Sigma2R=0;     // Can be merged into a single value ultimately (ie enable bits)
+            code_M2TmpA=0;      // Can be merged into a single value ultimately (ie enable bits)
             code_M2TmpB=0;      // Can be merged into a single value ultimately (ie enable bits)
             code_R2TmpB=0;      // Can be merged into a single value ultimately (ie enable bits)
+            code_R2TmpA=0;      // Can be merged into a single value ultimately (ie enable bits)
             code_SR2M=0;        // 
             code_M2SR=0;        //
+            code_FLAGS=0;
 
 
         if (tick==1)
@@ -384,6 +420,68 @@ begin
                         end
                     end
 
+//008   CD F   J  MN   R          M     -> tmpa      1   XI    tmpa        000???0??.00  alu rm<->r
+                9'h008:
+                    begin
+                        // M->tmpa  XI tmpa,NX
+                        code_M={instruction[0],modrm[2:0]};
+                        if (instruction[1] == 0)
+                            code_M2TmpA=1;      // M -> tmpa
+                        else
+                            code_M2TmpB=1;      // M -> tmpb
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord=instruction[0];
+                        operation<={1'b1,instruction[5:3]};
+                        executionState<=9'h009;
+                    end
+//009 A CD F H J L  OPQR  U       R     -> tmpb      4   none  WB,NX                     
+                9'h009:
+                    begin
+                        // R -> tmpb
+                        code_M={instruction[0],modrm[5:3]};
+                        if (instruction[1] == 0)
+                            code_R2TmpB=1;
+                        else
+                            code_R2TmpA=1;
+                        executionState<=9'h00A;
+                    end
+//00a  B  EF  I KL  OPQR          SIGMA -> M         4   none  RNI      F                
+                9'h00A:
+                    begin
+                        // SIGMA -> M/R
+                        if (instruction[1] == 0)
+                        begin
+                            //SIGMA->M
+                            code_Sigma2M=instruction[5:3]!=ALU_OP_CMP[2:0];
+                            code_M={instruction[0],modrm[2:0]};
+                            if ((modrm[7:6]==2'b11) || (code_Sigma2M==0))
+                                executionState<=9'h1FD;
+                            else
+                                executionState<=9'h00b;
+                        end
+                        else
+                        begin
+                            //SIGMA->R
+                            code_M={instruction[0],modrm[5:3]};
+                            code_Sigma2R=instruction[5:3]!=ALU_OP_CMP[2:0];
+                            executionState<=9'h1FD;
+                        end
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+                    end
+//00b ABC  F HI  LM O QRSTU                          6   W     DD,P0         
+                9'h00B:
+                    begin
+                        // DD,P0  (DS with override)
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=1;
+                        ind_readWrite<=1;
+                        executionState<=9'h1FD; // RNI
+                    end
+
 //014 A C E  HIJ     P   T        Q     -> tmpbL     0   L8       2        01100011?.00  MOV rm,i
                 9'h014:
                     begin
@@ -431,6 +529,55 @@ begin
                         ind_ioMreq<=1;
                         ind_readWrite<=1;
                         executionState<=9'h1FD; // RNI
+                    end
+
+//018 A C E  HIJ     P   T        Q     -> tmpbL     0   L8       2        000???10?.00  alu A,i
+                9'h018:
+                    begin
+                        // Q->tmpbL   L8            // ??? Should we validate reg == 0 here?
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[7:0]<=prefetchTop;
+                            tmpb[15:8]<={8{prefetchTop[7]}};
+                            readTop<=1;
+                            if (instruction[0]==1)
+                                executionState<=9'h019;
+                            else
+                                executionState<=9'h01a;     // L8
+                        end
+                    end
+//019 ABC E  HIJ L  OPQRSTU       Q     -> tmpbH                                         
+                9'h019:
+                    begin
+                        // Q-> tmpbH
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[15:8]<=prefetchTop;
+                            readTop<=1;
+                            executionState<=9'h01a;
+                        end
+                    end
+//01a   CD F   J  MN   R  U       M     -> tmpa      1   XI    tmpa, NX                  
+                9'h01A:
+                    begin
+                        // M->tmpa  XI tmpa,NX
+                        code_M={instruction[0],3'b000};
+                        code_M2TmpA=1;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord=instruction[0];
+                        operation<={1'b1,instruction[5:3]};
+                        executionState<=9'h01b;
+                    end
+//01b  B  EF  I KL  OPQR          SIGMA -> M         4   none  RNI      F                
+                9'h01B:
+                    begin
+                        // SIGMA -> M
+                        code_M={instruction[0],3'b000};
+                        code_Sigma2M=instruction[5:3]!=ALU_OP_CMP[2:0];
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+                        executionState<=9'h1FD;
                     end
 
 //01c A C E  HIJ     P   T        Q     -> tmpbL     0   L8       2        01011????.00  MOV r,i
@@ -760,11 +907,7 @@ begin
                         code_Sigma2M=1;
 
                         // Flags update
-                        FLAGS[FLAG_O_IDX]<=fo;
-                        FLAGS[FLAG_S_IDX]<=fs;
-                        FLAGS[FLAG_Z_IDX]<=fz;
-                        FLAGS[FLAG_A_IDX]<=fa;
-                        FLAGS[FLAG_P_IDX]<=fp;
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK;
 
                         executionState<=9'h1FD; // RNI
                     end
@@ -983,9 +1126,9 @@ begin
 //1f2 (NOT REAL mOP) EAFINISH
                 9'h1F2:
                     begin
-                        if (instruction[1]==0)
+                        if ((instruction[1]|readModifyWrite)==0)
                         begin
-                            executionState<=9'h1E3; // EADONE
+                            executionState<=9'h1e3; // EADONE
                         end
                         else
                         begin
@@ -1042,7 +1185,7 @@ begin
 //1f7 (NOT REAL mOP) EAOFFSET
                 9'h1F7:
                     begin
-                        if (instruction[1]==0)
+                        if ((instruction[1]|readModifyWrite)==0)
                         begin
                             if (modrm[7:6]==2'b00)
                                 executionState<=9'h1e3; // EADONE
@@ -1062,7 +1205,7 @@ begin
                 default:        // 3'h1FD - Waiting for instruction state
                     begin
 
-                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        if ((prefetchEmpty|indirectBusOpInProgress|TRACE_MODE)==0)
                         begin
                             modrm<=8'hFF;
                             segPrefix<=SEG_DS;
@@ -1103,6 +1246,10 @@ begin
                     WriteToRegister(code_M[3],code_M[2:0],SIGMA);
                 end
             end
+            if (code_Sigma2R)
+            begin
+                WriteToRegister(code_M[3],code_M[2:0],SIGMA);
+            end
             if (code_M2TmpB)
             begin
                 if (modrm[7:6]!=2'b11)
@@ -1114,9 +1261,24 @@ begin
                     tmpb<=ReadFromRegister(code_M[3],code_M[2:0]);
                 end
             end
+            if (code_M2TmpA)
+            begin
+                if (modrm[7:6]!=2'b11)
+                begin
+                    tmpa<=OPRr;
+                end
+                else
+                begin
+                    tmpa<=ReadFromRegister(code_M[3],code_M[2:0]);
+                end
+            end
             if (code_R2TmpB)
             begin
                 tmpb<=ReadFromRegister(code_M[3],code_M[2:0]);
+            end
+            if (code_R2TmpA)
+            begin
+                tmpa<=ReadFromRegister(code_M[3],code_M[2:0]);
             end
             if (code_SR2M)
             begin
@@ -1140,10 +1302,12 @@ begin
                     WriteToSRRegister(modrm[4:3],ReadFromRegister(code_M[3],code_M[2:0]));
                 end
             end
-
-
-
-
+            if (code_FLAGS[FLAG_O_IDX]==1) FLAGS[FLAG_O_IDX]<=fo;
+            if (code_FLAGS[FLAG_S_IDX]==1) FLAGS[FLAG_S_IDX]<=fs;
+            if (code_FLAGS[FLAG_Z_IDX]==1) FLAGS[FLAG_Z_IDX]<=fz;
+            if (code_FLAGS[FLAG_A_IDX]==1) FLAGS[FLAG_A_IDX]<=fa;
+            if (code_FLAGS[FLAG_P_IDX]==1) FLAGS[FLAG_P_IDX]<=fp;
+            if (code_FLAGS[FLAG_C_IDX]==1) FLAGS[FLAG_C_IDX]<=fc;
         end
 
 

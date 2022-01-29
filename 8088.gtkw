@@ -1,12 +1,12 @@
 [*]
 [*] GTKWave Analyzer v3.3.104 (w)1999-2020 BSI
-[*] Wed Jan 26 12:17:59 2022
+[*] Sat Jan 29 11:48:50 2022
 [*]
 [dumpfile] "/home/snax/BackedUp/fpga/verilator/8088konix/trace.vcd"
-[dumpfile_mtime] "Wed Jan 26 12:15:58 2022"
-[dumpfile_size] 33782
+[dumpfile_mtime] "Sat Jan 29 11:48:16 2022"
+[dumpfile_size] 11749834
 [savefile] "/home/snax/BackedUp/fpga/verilator/8088konix/8088.gtkw"
-[timestart] 817
+[timestart] 2459757
 [size] 5052 2752
 [pos] -1 -1
 *-8.000000 4670 8990 12830 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
@@ -66,9 +66,7 @@ TOP.top.biu.prefetchWriteAddr[2:0]
 TOP.top.biu.prefetchTop[7:0]
 @28
 TOP.top.biu.indirectBusOpInProgress
-@29
 TOP.top.biu.indirectBusCycle
-@28
 TOP.top.biu.suspending
 TOP.top.eu.readTop
 TOP.top.biu.indirect
@@ -111,8 +109,13 @@ TOP.top.eu.OPRw[15:0]
 @200
 -ALU
 @22
+TOP.top.eu.myalu.Operation[3:0]
 TOP.top.eu.myalu.Ai[15:0]
 TOP.top.eu.myalu.Bi[15:0]
+@28
+TOP.top.eu.myalu.carryIn
+@29
+TOP.top.eu.myalu.byteWord
 @28
 TOP.top.eu.myalu.F_Overflow
 TOP.top.eu.myalu.F_Neg

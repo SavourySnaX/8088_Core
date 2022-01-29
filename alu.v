@@ -53,6 +53,7 @@ wire [15:0] OperationXor;
 wire [15:0] OperationCmp;
 
 wire Op2Inv,opHasCarry;
+wire clearOC;
 
 assign OperationL = ~Operation;
 assign OperationPassA   = {17{OperationL[3] & OperationL[2] & OperationL[1] & OperationL[0] }};
@@ -80,14 +81,16 @@ assign Bi =
             ( ( 0)  & OperationPassA )  |
             ( ( 0)  & OperationNotA )  |
             ( ( 1)  & OperationIncA )  |
-            ( (-1)  & OperationDecA )  |
+            ( (~1)  & OperationDecA )  |
             ( ( B)  & (OperationAdd | OperationOr | OperationAdc | OperationAnd | OperationXor)) |
             ( (~B)  & (OperationSbb | OperationSub | OperationCmp) );
 
 assign op2Inv = (OperationDecA | OperationSbb | OperationSub | OperationCmp);
 assign opHasCarry = OperationAdc | OperationSbb;
+assign clearOC = OperationAnd | OperationOr | OperationXor;
 
-assign carry[0] = opHasCarry ? (op2Inv ? ~carryIn : carryIn ) : 0;
+
+assign carry[0] = opHasCarry ? (op2Inv ? ~carryIn : carryIn ) : (op2Inv ? 1 : 0);
 genvar i;
 generate
   for (i=0; i < 16; i=i+1) 
@@ -97,14 +100,18 @@ generate
     end
 endgenerate
 
-assign S = resultAdder;    // Later need to switch between logic and binary ops
+assign S = (resultAdder & {16{~clearOC}})                |
+           ((Ai | Bi)   & {16{ clearOC}} & OperationOr)  |
+           ((Ai & Bi)   & {16{ clearOC}} & OperationAnd) |
+           ((Ai ^ Bi)   & {16{ clearOC}} & OperationXor);
+
 
 // todo 8bit math flags
-assign F_Overflow = carry[16] ^ carry[15];
-assign F_Neg = S[15];
-assign F_Zero = (S[15:0] == 0);
+assign F_Overflow = clearOC ? 0 : byteWord ? carry[16] ^ carry[15] : carry[8] ^ carry[7];
+assign F_Neg = byteWord ? S[15] : S[7];
+assign F_Zero = byteWord ? (S[15:0] == 0) : (S[7:0] == 0);
 assign F_Aux = carry[4] ^ op2Inv;
 assign F_Parity = ~(S[0] ^ S[1] ^ S[2] ^ S[3] ^ S[4] ^ S[5] ^ S[6] ^ S[7]);
-assign F_Carry = carry[16] ^ op2Inv;
+assign F_Carry = clearOC ? 0 : byteWord ? carry[16] ^ op2Inv : carry[8] ^ op2Inv;
 
 endmodule
