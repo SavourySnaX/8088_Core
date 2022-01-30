@@ -546,52 +546,6 @@ int CheckSubFlagsW(int a,int b, int flagMask)
     return TestFlags(tb->top->eu->FLAGS,ret, flagMask);
 }
 
-/*
-FUNCTION INTERNAL	res[16]		OrWord			dst[16],src[16]
-{
-	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET { dst | src }->res;
-	AFFECT P AS PARITYEVEN { res[0..7] };
-}
-
-FUNCTION INTERNAL	res[8]		OrByte			dst[8],src[8]
-{
-	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET, P AS PARITYEVEN { dst | src }->res;
-}
-
-FUNCTION INTERNAL	res[16]		SubWord			dst[16],src[16],carry[1]
-{
-	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(dst,src,15), C AS CARRY(15) { (dst - src)-carry }->res;
-	AFFECT P AS PARITYEVEN { res[0..7] };
-}
-
-FUNCTION INTERNAL	res[8]		SubByte			dst[8],src[8],carry[1]
-{
-	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(dst,src,7), C AS CARRY(7), P AS PARITYEVEN { (dst - src)-carry }->res;
-}
-
-FUNCTION INTERNAL	res[16]		AndWord			dst[16],src[16]
-{
-	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET { dst & src }->res;
-	AFFECT P AS PARITYEVEN { res[0..7] };
-}
-
-FUNCTION INTERNAL	res[8]		AndByte			dst[8],src[8]
-{
-	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET, P AS PARITYEVEN { dst & src }->res;
-}
-
-FUNCTION INTERNAL	res[16]		XorWord			dst[16],src[16]
-{
-	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET { dst ^ src }->res;
-	AFFECT P AS PARITYEVEN { res[0..7] };
-}
-
-FUNCTION INTERNAL	res[8]		XorByte			dst[8],src[8]
-{
-	AFFECT S AS SIGN, Z AS ZERO, O AS FORCERESET, C AS FORCERESET, P AS PARITYEVEN { dst ^ src }->res;
-}
-*/
-
 int ValidateIncWordRegister(const char* testData, int counter, int testCnt, int regInitVal)
 {
     int registerNumber = Extract(testData,'R', counter, testCnt);
@@ -1595,6 +1549,40 @@ int ValidateSTOSREP(const char* testData, int counter, int testCnt, int regInitV
     return tb->top->eu->CX == 0;
 }
 
+int ValidateIncRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,-1,RM,dispL,dispH);
+
+    int hValue = FetchDestValue(0,word,mod,-1,RM,dispL,dispH);
+
+    if (word)
+        return CheckAddResultW(opAValue,1,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P,hValue);
+    return CheckAddResultB(opAValue,1,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P,hValue);
+}
+
+int ValidateDecRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,-1,RM,dispL,dispH);
+
+    int hValue = FetchDestValue(0,word,mod,-1,RM,dispL,dispH);
+
+    if (word)
+        return CheckSubResultW(opAValue,1,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P,hValue);
+    return CheckSubResultB(opAValue,1,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P,hValue);
+}
+
 
 #define TEST_MULT 4
 
@@ -1635,7 +1623,10 @@ const char* testArray[]={
     "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP STOS (CX==0) 
     "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP STOS (CX==5) 
     "1110010W LLLLLLLL ",                                       (const char*)ValidateInA,                       (const char*)DefaultTestInit,   (const char*)0x0000,      // in ib, al/ax
+    "1111111W MM000mmm llllllll hhhhhhhh ",                     (const char*)ValidateIncRM,                     (const char*)RegisterNum,       (const char*)0x0000,      // inc rm
+    "1111111W MM001mmm llllllll hhhhhhhh ",                     (const char*)ValidateDecRM,                     (const char*)RegisterNum,       (const char*)0x0000,      // dec rm
 #endif
+    // TODO ADD TESTS FOR Jcond
     0
 };
 
@@ -2168,6 +2159,10 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
 
 #if !UNIT_TEST
 
+#define RAND_IO_SIZE 16
+int IORand[RAND_IO_SIZE]={0x00,0x00,0xFF,0xFF,0x00,0x80,0xFF,0x7F,0x11,0x11,0x22,0x22,0x33,0x33,0x44,0x44};
+int randomIOIdx=0;
+
 void SimulateInterface(Vtop *tb)
 {
     if (tb->RESET==1)
@@ -2178,9 +2173,18 @@ void SimulateInterface(Vtop *tb)
         address|=tb->outAD;
         latchedAddress=address;
     }
-    if (tb->RD_n==0)
+    if (tb->RD_n==0 && lastRead==1)
     {
-        tb->inAD = ROM[latchedAddress & (ROMSIZE-1)];
+        if (tb->IOM==1)
+        {
+            tb->inAD = ROM[latchedAddress & (ROMSIZE-1)];
+            printf("Read RAM : %08X -> %02X\n", latchedAddress, tb->inAD);
+        }
+        else
+        {
+            tb->inAD = IORand[(randomIOIdx++)&(RAND_IO_SIZE-1)];
+            printf("Read IO : %08X -> %02X\n", latchedAddress, tb->inAD);
+        }
     }
     if (tb->WR_n==1 && lastWrite==0)    // Only log once per write
     {
@@ -2190,6 +2194,7 @@ void SimulateInterface(Vtop *tb)
             printf("Write To IO : %08X <- %02X\n",latchedAddress,tb->outAD);
     }
     lastWrite=tb->WR_n;
+    lastRead=tb->RD_n;
 }
 
 #endif

@@ -135,6 +135,25 @@ parameter ALU_OP_SUB = 4'b1101;
 parameter ALU_OP_XOR = 4'b1110;
 parameter ALU_OP_CMP = 4'b1111;
 
+wire Cond_O, Cond_NO, Cond_C, Cond_AE, Cond_E, Cond_NE, Cond_BE, Cond_A, Cond_S, Cond_NS, Cond_P, Cond_PO, Cond_L, Cond_GE, Cond_LE, Cond_G;
+
+assign Cond_O  = FLAGS[FLAG_O_IDX];
+assign Cond_NO =~FLAGS[FLAG_O_IDX];
+assign Cond_C  = FLAGS[FLAG_C_IDX];
+assign Cond_AE =~FLAGS[FLAG_C_IDX];
+assign Cond_E  = FLAGS[FLAG_Z_IDX];
+assign Cond_NE =~FLAGS[FLAG_Z_IDX];
+assign Cond_BE =   FLAGS[FLAG_C_IDX]  |   FLAGS[FLAG_Z_IDX];
+assign Cond_A  = (~FLAGS[FLAG_C_IDX]) & (~FLAGS[FLAG_Z_IDX]);
+assign Cond_S  = FLAGS[FLAG_S_IDX];
+assign Cond_NS =~FLAGS[FLAG_S_IDX];
+assign Cond_P  = FLAGS[FLAG_P_IDX];
+assign Cond_PO =~FLAGS[FLAG_P_IDX];
+assign Cond_L  = FLAGS[FLAG_S_IDX] != FLAGS[FLAG_O_IDX];
+assign Cond_GE = FLAGS[FLAG_S_IDX] == FLAGS[FLAG_O_IDX];
+assign Cond_LE =(FLAGS[FLAG_S_IDX] != FLAGS[FLAG_O_IDX]) |   FLAGS[FLAG_Z_IDX];
+assign Cond_G  =(FLAGS[FLAG_S_IDX] == FLAGS[FLAG_O_IDX]) & (~FLAGS[FLAG_Z_IDX]);
+
 reg [8:0] PostEffectiveAddressReturn;   // EA calculation finsh jumps to here
 
 // alu
@@ -204,8 +223,14 @@ begin
     end
     else if (inst[7:1] == 7'b1010101)                    // STOS
         executionState <= 9'h11C;
-    else if (inst[7:1] == 8'b1111001)                    // REP
+    else if (inst[7:1] == 7'b1111001)                    // REP
         executionState <= 9'h006;
+    else if (inst[7:4] == 4'b0111)                       // Jcond
+        executionState <= 9'h0e8;
+    else if (inst[7:1] == 7'b1111111)                    // FE/FF prefixed INC/DEC rm
+    begin
+        executionState <= 9'h1f3;
+    end
     else
         executionState <= 9'h1FD;
 end
@@ -646,6 +671,46 @@ begin
                         executionState<=9'h1f7; //EAOFFSET
                     end
 
+//020 A CD F   J  MN   R TU       M     -> tmpb      1   XI    tmpb, NX    ?1111100?.00   INC/DEC rm
+                9'h020:
+                    begin
+                        // M->tmpb
+                        code_M={instruction[0],modrm[2:0]};
+                        code_M2TmpB=1;
+                        
+                        aluAselect<=2'b01;     // ALUA = tmpb
+                        aluWord<=instruction[0];
+                        operation<=ALU_OP_INC+modrm[3];  // Inc/Dec
+                        
+                        executionState<=9'h021;
+                    end
+//021  B  EF  I KL  OPQR          SIGMA -> M         4   none  RNI      F                
+                9'h021:
+                    begin
+                        // SIGMA -> M     RNI
+                        code_M={instruction[0],modrm[2:0]};
+                        code_Sigma2M=1;
+
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK;
+
+                        if (modrm[7:6]==2'b11)
+                            executionState<=9'h1FD; // RNI
+                        else
+                            executionState<=9'h022;
+                    end
+//022 ABC  F HI  LM O QRSTU                          6   W     DD,P0  
+                9'h022:
+                    begin
+                        // DD,P0  (DS with override)
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=1;
+                        ind_readWrite<=1;
+                        executionState<=9'h1FD; // RNI
+                    end
+
 //023   CD FGHI  L N     TU       MP    -> tmpa      5   UNC   EAOFFSET                  [BP]
                 9'h023:
                     begin
@@ -876,6 +941,47 @@ begin
                         latchCS<=1;
                         flush<=1;   // FLUSH (and resumes prefetch queue)
                         executionState<=9'h1FD; // RNI
+                    end
+
+//0e8 A C E  HIJ L  OPQRSTU       Q     -> tmpbL                           0011?????.00  Jcond cb
+                9'h0E8:
+                    begin
+                        // Q -> tmpbL
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[7:0]<=prefetchTop;
+                            tmpb[15:8]<={8{prefetchTop[7]}};
+                            readTop<=1;
+                            executionState<=9'h0e9;
+                        end
+                    end
+//0e9 ABC  F HI  L NOPQ  T                           5   XC    RELJMP                    
+                9'h0E9:
+                    begin
+                        case (instruction[3:0])
+                            4'b0000:    if (Cond_O ) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b0001:    if (Cond_NO) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b0010:    if (Cond_C ) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b0011:    if (Cond_AE) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b0100:    if (Cond_E ) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b0101:    if (Cond_NE) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b0110:    if (Cond_BE) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b0111:    if (Cond_A ) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b1000:    if (Cond_S ) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b1001:    if (Cond_NS) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b1010:    if (Cond_P ) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b1011:    if (Cond_PO) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b1100:    if (Cond_L ) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b1101:    if (Cond_GE) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b1110:    if (Cond_LE) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            4'b1111:    if (Cond_G ) executionState<=9'h0d2; else executionState<=9'h0ea;
+                            default: begin end
+                        endcase
+                    end
+//0ea ABC  F HI  L  OPQR                             4   none  RNI                   
+                9'h0EA:
+                    begin
+                        executionState<=9'h1FD; // RNI 
                     end
 
 //0ec  B  EF H J L  OPQR          R     -> M         4   none  RNI         0100011?0.00  MOV rmw<->sr
@@ -1283,6 +1389,29 @@ begin
                         else
                         begin
                             executionState<=9'h1e1; // EALOAD
+                        end
+                    end
+
+//1f3 (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. INC/DEC...)
+                9'h1F3:
+                    begin
+                        // Q -> MODRM
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            modrm[7:0]<=prefetchTop;
+                            readTop<=1;
+                            if (prefetchTop[5:4]==2'b00)
+                            begin
+                                readModifyWrite=1;
+                                if (prefetchTop[7:6]==2'b11)
+                                    executionState<=9'h020;
+                                else
+                                begin
+                                    PostEffectiveAddressReturn<=9'h020;
+                                    executionState<=9'h1f6;
+                                end
+                            end
+                            // TODO handle other FE/FF instructions (fornow, will go very wrong here)
                         end
                     end
 
