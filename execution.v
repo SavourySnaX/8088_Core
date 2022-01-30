@@ -91,6 +91,8 @@ reg [1:0] aluAselect;  // 00 tmpa 01 tmpb 10 tmpc 11 ...
 reg [1:0] aluBselect;
 reg aluWord;
 
+reg repeatF,repeatFZ;
+
 wire [15:0] aluA,aluB;
 
 wire fo,fs,fz,fa,fp,fc;
@@ -151,7 +153,7 @@ begin
     readModifyWrite = 0;
     if (inst[7:2] == 6'b100010)                              // MOV rmw<->r
     begin
-        PostEffectiveAddressReturn = 9'h000;
+        PostEffectiveAddressReturn <= 9'h000;
         executionState <= 9'h1f5;
     end
     else if (inst[7:4] == 4'b1011)                            // MOV rrr,i
@@ -159,13 +161,13 @@ begin
     else if (inst[7:1] == 7'b1100011)                         // MOV rm,i
     begin
         instruction[1]<=0;                               // acts as if direction is 0
-        PostEffectiveAddressReturn = 9'h014;
+        PostEffectiveAddressReturn <= 9'h014;
         executionState <= 9'h1f5;
     end
     else if ({inst[7:2],inst[0]} == 7'b1000110)          // MOV rmw<->sr
     begin
         instruction[0]<=1;                               // its a word operation
-        PostEffectiveAddressReturn = 9'h0EC;
+        PostEffectiveAddressReturn <= 9'h0EC;
         executionState <= 9'h1f5;
     end
     else if (inst[7:1] == 7'b1110011)                    // OUT ib, AL/AX
@@ -195,9 +197,13 @@ begin
     else if ({inst[7:6],inst[2]} == 3'b000)              // alu rm<->r
     begin
         readModifyWrite = 1;
-        PostEffectiveAddressReturn = 9'h008;
+        PostEffectiveAddressReturn <= 9'h008;
         executionState <= 9'h1f5;
     end
+    else if (inst[7:1] == 7'b1010101)                    // STOS
+        executionState <= 9'h11C;
+    else if (inst[7:1] == 8'b1111001)                    // REP
+        executionState <= 9'h006;
     else
         executionState <= 9'h1FD;
 end
@@ -420,6 +426,20 @@ begin
                         end
                     end
 
+//006 (not real mOP) - REP 
+                9'h006:
+                    begin
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpc<=CX;     // MOVED This from 112, we shouldn't reload this every iteration
+                            repeatF<=1;
+                            repeatFZ<=instruction[0];
+                            instruction<=prefetchTop;
+                            readTop<=1;
+                            FetchExecStateFromInstruction(prefetchTop);
+                        end
+                    end
+
 //008   CD F   J  MN   R          M     -> tmpa      1   XI    tmpa        000???0??.00  alu rm<->r
                 9'h008:
                     begin
@@ -431,7 +451,7 @@ begin
                             code_M2TmpB=1;      // M -> tmpb
                         aluAselect<=2'b00;     // ALUA = tmpa
                         aluBselect<=2'b01;     // ALUB = tmpb
-                        aluWord=instruction[0];
+                        aluWord<=instruction[0];
                         operation<={1'b1,instruction[5:3]};
                         executionState<=9'h009;
                     end
@@ -565,7 +585,7 @@ begin
                         code_M2TmpA=1;
                         aluAselect<=2'b00;     // ALUA = tmpa
                         aluBselect<=2'b01;     // ALUB = tmpb
-                        aluWord=instruction[0];
+                        aluWord<=instruction[0];
                         operation<={1'b1,instruction[5:3]};
                         executionState<=9'h01b;
                     end
@@ -657,7 +677,7 @@ begin
                         // 0->tmpbH  PASS tmpb
                         tmpb[15:8]<=0;
                         aluAselect<=2'b01;     // ALUA = tmpB
-                        aluWord=1'b1;
+                        aluWord<=1'b1;
                         operation<=ALU_OP_PASS;   // PASS A
                         executionState<=9'h0b2;
                     end
@@ -727,7 +747,7 @@ begin
                         
                         aluAselect<=2'b00;     // ALUA = tmpa
                         aluBselect<=2'b01;     // ALUB = tmpb
-                        aluWord=1'b1;
+                        aluWord<=1'b1;
                         operation<=ALU_OP_ADD;     // A+B
 
                         executionState<=9'h0D5;
@@ -845,7 +865,89 @@ begin
                         ind_readWrite<=1;
                         executionState<=9'h1FD; // RNI
                     end
+//112  BCD FGH    MN    S         BC    -> tmpc      1   PASS  tmpc                      RPTS
+                9'h112:
+                    begin
+                        //tmpc<=CX;     // MOVED This to the REP instruction, we shouldn't reload this every iteration
+                        aluAselect<=2'b10;     // ALUA = tmpC
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_PASS;   // PASS A
+                        executionState<=9'h113;
+                    end
+//113 ABC  F  I   MNO  RS         SIGMA -> no dest   1   DEC   tmpc                      
+                9'h113:
+                    begin
+                        aluAselect<=2'b10;     // ALUA = tmpC
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_DEC;   // DEC (for next iteration)
+                        if (fz)
+                            executionState<=9'h115;
+                        else
+                            executionState<=9'h114;
+                    end
+//114 ABC  F HI    N P R T                           0   NZ      10        011010111.10  
+                9'h114:
+                    begin
+                        executionState<=9'h116;
+                    end
+//115 ABC  F HI  L  OPQR                             4   none  RNI     
+                9'h115:
+                    begin
+                        if (repeatF)
+                            CX<=tmpc;
+                        executionState<=9'h1FD; // RNI
+                    end
+//116 ABC  F HI  L  OPQRS                            4   none  RTN                       
+                9'h116:
+                    begin
+                        executionState<=PostEffectiveAddressReturn;
+                    end
 
+//11c A C  FGHIJ LMNO Q   U       IK    -> IND       7   F1    RPTS        01010101?.00  STOS
+                9'h11C:
+                    begin
+                        IND <= DI;
+                        if (repeatF)
+                        begin
+                            PostEffectiveAddressReturn<=9'h11d;
+                            executionState<=9'h112;
+                        end
+                        else
+                            executionState<=9'h11d;
+                    end
+
+//11d  BC  F   J LM O     U       M     -> OPR       6   w     DA,BL                     
+                9'h11D:
+                    begin
+                        OPRw <= AX;
+                        indirect<=1;
+                        indirectSeg<=SEG_ES;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=1;
+                        ind_readWrite<=1;
+                        executionState<=9'h11e;
+                    end
+//11e ABCDE  HI    N  Q S U       IND   -> IK        0   NF1      5                      
+                9'h11E:
+                    begin
+                        if ((indirectBusOpInProgress)==0) // should we wait here?? or at 11d which would allow better throughput
+                        begin
+                            // Adjusted IND value here - probably via BIU originally, for now, just do adjustment directly
+                            DI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
+                            
+                            if (!repeatF)
+                                executionState<= 9'h115;    // ?? unclear exact dest, this seems ok though
+                            else
+                                executionState<=9'h11f;
+                        end
+                    end
+//11f  BCD F  I  L NOP R          SIGMA -> tmpc      5   INT   RPTI
+                9'h11F:
+                    begin
+                        tmpc<=SIGMA;
+                        // TODO REP interrupt checks
+                        executionState<=9'h11c;
+                    end
 
 //140  BCD FGH    MNO  RS         BC    -> tmpc      1   DEC   tmpc        011100010.00  LOOP
                 9'h140:
@@ -853,7 +955,7 @@ begin
                         // BC->tmpc
                         tmpc<=CX;
                         aluAselect<=2'b10;     // ALUA = tmpc
-                        aluWord=1'b1;
+                        aluWord<=1'b1;
                         operation<=ALU_OP_DEC; // DEC A
                         executionState<=9'h141;
                     end
@@ -894,7 +996,7 @@ begin
                         code_M2TmpB=1;
 
                         aluAselect<=2'b01;     // ALUA = tmpb
-                        aluWord=1'b1;
+                        aluWord<=1'b1;
                         operation<=ALU_OP_INC+instruction[3];  // Inc/Dec
 
                         executionState<=9'h17D;
@@ -926,7 +1028,7 @@ begin
                         tmpb<=SI;
                         aluAselect<=2'b00;     // ALUA = tmpa
                         aluBselect<=2'b01;     // ALUB = tmpb
-                        aluWord=1'b1;
+                        aluWord<=1'b1;
                         operation<=ALU_OP_ADD;     // A+B
                         executionState<=9'h1d6;
                     end
@@ -952,7 +1054,7 @@ begin
                         tmpb<=DI;
                         aluAselect<=2'b00;     // ALUA = tmpa
                         aluBselect<=2'b01;     // ALUB = tmpb
-                        aluWord=1'b1;
+                        aluWord<=1'b1;
                         operation<=ALU_OP_ADD;     // A+B
                         executionState<=9'h1d9;
                     end
@@ -1014,7 +1116,7 @@ begin
                             readTop<=1;
                             aluAselect<=2'b00;     // ALUA = tmpa
                             aluBselect<=2'b01;     // ALUB = tmpb
-                            aluWord=1'b1;
+                            aluWord<=1'b1;
                             operation<=ALU_OP_ADD;     // A+B
                             if (modrm[7:6]==2'b01)
                                 executionState<=9'h1e0;  // MOD1
@@ -1207,6 +1309,7 @@ begin
 
                         if ((prefetchEmpty|indirectBusOpInProgress|TRACE_MODE)==0)
                         begin
+                            repeatF<=0;
                             modrm<=8'hFF;
                             segPrefix<=SEG_DS;
                             instruction<=prefetchTop;

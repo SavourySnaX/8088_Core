@@ -129,7 +129,7 @@ assign indirectBusOpInProgress=indirect | (indirectBytes!=0) | indirectBusCycle;
 
 assign suspending = suspend | requestPrefetchHold | requestFlush;
 
-wire [2:0] qSize;
+wire [2:0] qSize /* verilator public */;
 assign qSize = prefetchWriteAddr>prefetchReadAddr ? (prefetchWriteAddr - prefetchReadAddr) : ({1'b1,prefetchWriteAddr} - prefetchReadAddr);
 
 /* verilator lint_off BLKSEQ */

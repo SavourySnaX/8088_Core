@@ -9,13 +9,14 @@
 #define UNIT_TEST 1
 #define TINY_ROM 0
 #define VIDEO_BOOTSTRAP 0
-#define TEST_PAGING 0
+#define TEST_P88 0
+#define P88_FILEPATH "/home/snax/ROMS/KONIX_TEST_VIDEO_PAGING.P88"
 
 #define CLK_DIVISOR 8
 
 #define NO_TRACE    (1 && UNIT_TEST) | (!UNIT_TEST)
 
-#define TICK_LIMIT  0//300000
+#define TICK_LIMIT  0 && 300000
 
 int internalClock=CLK_DIVISOR;
 int ck=0;
@@ -26,7 +27,7 @@ Vtop *tb;
 
 #if UNIT_TEST       // RUN ON 64BIT X86 since i cheated and use asm for flags
 
-#define MAX_READWRITE_CAPTURE   5
+#define MAX_READWRITE_CAPTURE   100
 
 int segOverride=3;
 
@@ -47,6 +48,15 @@ enum ERegisterNum
     SI = 6,
     DI = 7,
 };
+
+enum ESRReg
+{
+    ES=0,
+    CS=1,
+    SS=2,
+    DS=3
+};
+
 
 int NumMatch(const char* testData, char code)
 {
@@ -371,6 +381,12 @@ void RegisterNum(int regInitVal)
     tb->top->biu->REGISTER_DS=0x1000;
     tb->top->biu->REGISTER_ES=0x3000;
     tb->top->biu->REGISTER_SS=0x5000;
+}
+
+void RegisterNumCX(int regInitVal)
+{
+    RegisterNum(regInitVal);
+    tb->top->eu->CX=regInitVal;
 }
 
 void RegisterNumFlags(int regInitVal)
@@ -773,9 +789,8 @@ int ComputeEffectiveAddress(int mod,int rm,int dispL, int dispH)
     return 0xFFFFFFFF;
 }
 
-int FetchDestValueMemory(int word, int mod, int rm, int dispL, int dispH)
+int FetchWrittenMemory(int word, int address)
 {
-    int address=ComputeEffectiveAddress(mod,rm,dispL,dispH);
     if (address != readWriteLatchedAddress[captureIdx])
     {
         printf("Failed - First Address Mismatch : %05X!=%05X", address, readWriteLatchedAddress[captureIdx]);
@@ -807,6 +822,12 @@ int FetchDestValueMemory(int word, int mod, int rm, int dispL, int dispH)
     }
 
     return lastWriteCapture[captureIdx++];
+}
+
+int FetchDestValueMemory(int word, int mod, int rm, int dispL, int dispH)
+{
+    int address=ComputeEffectiveAddress(mod,rm,dispL,dispH);
+    return FetchWrittenMemory(word, address);
 }
 
 int FetchSourceValueMemory(int word, int mod, int rm, int dispL, int dispH)
@@ -1446,6 +1467,90 @@ int ValidateAluRMR(const char* testData, int counter, int testCnt, int regInitVa
     return CheckALUOp(word, alu, 0, opAValue, opBValue, hValue);
 }
 
+int ValidateSTOS(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+
+    int seg = FetchInitialSR(ESRReg::ES);
+    int off = RegisterNumInitialWord(ERegisterNum::DI);
+    int store=RegisterNumInitialByte(ERegisterNum::AX);
+    if (word)
+        store=RegisterNumInitialWord(ERegisterNum::AX);
+
+    int hValue = FetchWrittenMemory(word,(seg*16 + off)&0xFFFFF);
+
+    int hSeg = tb->top->biu->REGISTER_ES;
+    if (seg != hSeg)
+    {
+        printf("FAILED - Segment Register Mismatch : %04X != %04X\n", seg, hSeg);
+        return 0;
+    }
+    int hOff = tb->top->eu->DI;
+    if (regInitVal==FLAG_D)
+    {
+        if (word)
+            off-=2;
+        else
+            off-=1;
+    }
+    else
+    {
+        if (word)
+            off+=2;
+        else
+            off+=1;
+    }
+    if (off != hOff)
+    {
+        printf("FAILED - Offset Mismatch : %04X != %04X\n", off, hOff);
+        return 0;
+    }
+
+    printf("%04X %04X\n",store, hValue);
+    return store==hValue;
+}
+
+int ValidateSTOSREP(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+
+    int seg = FetchInitialSR(ESRReg::ES);
+    int off = RegisterNumInitialWord(ERegisterNum::DI);
+    int store=RegisterNumInitialByte(ERegisterNum::AX);
+    if (word)
+        store=RegisterNumInitialWord(ERegisterNum::AX);
+
+    int hSeg = tb->top->biu->REGISTER_ES;
+    if (seg != hSeg)
+    {
+        printf("FAILED - Segment Register Mismatch : %04X != %04X\n", seg, hSeg);
+        return 0;
+    }
+
+    int hValue=0;
+    for (int a=0;a<regInitVal;a++)
+    {
+        hValue = FetchWrittenMemory(word,(seg*16 + off)&0xFFFFF);
+        if (word)
+            off+=2;
+        else
+            off+=1;
+        if (store!=hValue)
+        {
+            printf("FAILED - Mismatch Written Value : %04X != %04X\n", store, hValue);
+        }
+    }
+
+    int hOff = tb->top->eu->DI;
+    if (off != hOff)
+    {
+        printf("FAILED - Offset Mismatch : %04X != %04X\n", off, hOff);
+        return 0;
+    }
+
+    return tb->top->eu->CX == 0;
+}
+
 
 #define TEST_MULT 4
 
@@ -1481,6 +1586,10 @@ const char* testArray[]={
     "00AAA0DW 11RRRmmm ",                                       (const char*)ValidateAluRMR,                    (const char*)RegisterNum,       (const char*)0x0003,      // mov rm,i (byte/word) (reg) (no need to check Carry in)
     "00AAA0DW 01RRRmmm llllllll ",                              (const char*)ValidateAluRMR,                    (const char*)RegisterNum,       (const char*)0x0001,      // mov rm,i (byte/word) (mem) (no need to check Carry in)
     "11111100 ",                                                (const char*)ValidateFlagClear,                 (const char*)SetFlags,          (const char*)(FLAG_D),    // cld
+    "1010101W ",                                                (const char*)ValidateSTOS,                      (const char*)RegisterNumFlags,  (const char*)0,           // STOS (D clear)
+    "1010101W ",                                                (const char*)ValidateSTOS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // STOS (D set)
+    "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP STOS (CX==0) 
+    "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP STOS (CX==5) 
 #endif
     0
 };
@@ -1701,7 +1810,7 @@ void SimulateInterface(Vtop *tb)
 #if 1
     if (tb->RD_n==1 && lastRead==0)
     {
-        if (tb->top->biu->indirectBusCycle==1)
+        if (tb->top->biu->indirectBusCycle==1 && captureIdx<MAX_READWRITE_CAPTURE)
         {
             readWriteLatchedAddress[captureIdx]=latchedAddress;
             readWriteLatchedType[captureIdx]=tb->IOM;
@@ -1718,7 +1827,7 @@ void SimulateInterface(Vtop *tb)
 #endif
     if (tb->WR_n==1 && lastWrite==0)    // Only log once per write
     {
-        if (tb->top->biu->indirectBusOpInProgress==1)
+        if (tb->top->biu->indirectBusOpInProgress==1 && captureIdx<MAX_READWRITE_CAPTURE)
         {
             readWriteLatchedAddress[captureIdx]=latchedAddress&0xFFFFF;
             readWriteLatchedType[captureIdx]=tb->IOM;
@@ -1806,10 +1915,207 @@ const unsigned char ROM[64] = {
 0x00,
 0x00,
 0x00};
-#elif TEST_PAGING
+#elif TEST_P88
 
-#define ROMSIZE 16
-const unsigned char ROM[16] = {0xb9, 0x02, 0x00, 0xE2, 0xFE, 0xFA, 0xB8, 0x00, 0x90, 0x8E, 0xD0, 0xBC, 0x99, 0x88, 0x66, 0x77};
+#define ROMSIZE 1024*1024
+unsigned char ROM[ROMSIZE];
+
+#define SEGTOPHYS(seg,off)	( ((seg)<<4) + (off) )				// Convert Segment,offset pair to physical address
+int HandleLoadSection(FILE* inFile)
+{
+	uint16_t	segment,offset;
+	uint16_t	size;
+	int		a=0;
+	uint8_t		byte;
+
+	if (2!=fread(&segment,1,2,inFile))
+	{
+		printf("Failed to read segment for LoadSection\n");
+		exit(1);
+	}
+	if (2!=fread(&offset,1,2,inFile))
+	{
+		printf("Failed to read offset for LoadSection\n");
+		exit(1);
+	}
+	fseek(inFile,2,SEEK_CUR);		// skip unknown
+	if (2!=fread(&size,1,2,inFile))
+	{
+		printf("Failed to read size for LoadSection\n");
+		exit(1);
+	}
+
+	printf("Found Section Load Memory : %04X:%04X   (%08X bytes)\n",segment,offset,size);
+
+	for (a=0;a<size;a++)
+	{
+		if (1!=fread(&byte,1,1,inFile))
+		{
+			printf("Failed to read data from LoadSection\n");
+			exit(1);
+		}
+        ROM[(a+SEGTOPHYS(segment,offset))&(ROMSIZE-1)] = byte;
+	}
+
+	return 8+size;
+}
+
+int HandleExecuteSection(FILE* inFile)
+{
+	uint16_t	segment,offset;
+	
+	if (2!=fread(&segment,1,2,inFile))
+	{
+		printf("Failed to read segment for ExecuteSection\n");
+		exit(1);
+	}
+	if (2!=fread(&offset,1,2,inFile))
+	{
+		printf("Failed to read offset for ExecuteSection\n");
+		exit(1);
+	}
+
+    offset+=5;  // HACK
+
+    // Create lJMP in RESET address
+    ROM[0xFFFF0&(ROMSIZE-1)]=0xEA;
+    ROM[0xFFFF1&(ROMSIZE-1)]=offset;
+    ROM[0xFFFF2&(ROMSIZE-1)]=offset>>8;
+    ROM[0xFFFF3&(ROMSIZE-1)]=segment;
+    ROM[0xFFFF4&(ROMSIZE-1)]=segment>>8;
+
+
+	printf("Found Section Execute : %04X:%04X\n",segment,offset);
+
+	return 4;
+}
+
+void LoadP88(const char* path)
+{
+    FILE *p88 = fopen(path, "rb");
+    fseek(p88,0,SEEK_END);
+    long size = ftell(p88);
+    fseek(p88,0,SEEK_SET);
+
+    while (size)
+    {
+        unsigned char t;
+        if (1!=fread(&t, 1,1, p88))
+        {
+            printf("FAILED TO READ SECTION\n");
+            exit(1);
+        }
+        size--;
+
+        switch (t)
+        {
+            case 0xFF:
+                break;
+            case 0xC8:
+                size-=HandleLoadSection(p88);
+                break;
+            case 0xCA:
+                size-=HandleExecuteSection(p88);
+                break;
+        }
+    }
+}
+
+int testState=1;
+
+unsigned char PeekByte(unsigned int address)
+{
+    return ROM[address & (ROMSIZE-1)];
+}
+
+#include "disasm.c"
+
+int startDebuggingAddress = 0x80006;
+int showDebugger=1;
+
+int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
+{
+    if (TICK_LIMIT)
+    {
+        if (ticks>TICK_LIMIT)
+            return 1;
+    }
+
+    switch (testState)
+    {
+        case 0:
+            if (tb->top->eu->executionState == 0x1FD)   // Wait For Instruction Fetch
+            {
+                testState++;
+            }
+            break;
+        case 1:
+            if (tb->top->eu->executionState != 0x1FD)   // Wait For Execute
+            {
+                testState++;
+                tb->top->eu->TRACE_MODE=1;  // prevent further instruction execution
+            }
+            break;
+        case 2:
+            if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0))
+            {
+                // At this point an instruction has completed.. 
+
+                int address = (tb->top->biu->REGISTER_CS*16) + (tb->top->biu->REGISTER_IP - tb->top->biu->qSize);
+                if (address == startDebuggingAddress)
+                    showDebugger=1;
+                if (showDebugger)
+                {
+                    // Dump State 
+
+                    InStream a;
+                    a.bytesRead=0;
+                    a.curAddress=address;
+                    a.findSymbol=NULL;
+                    a.useAddress=1;
+                    Disassemble(&a,0);
+
+                    printf("\nAX : %04X | BX : %04X | CX : %04X | DX : %04X\n", tb->top->eu->AX, tb->top->eu->BX, tb->top->eu->CX, tb->top->eu->DX);
+                    printf("BP : %04X | SP : %04X | DI : %04X | SI : %04X\n", tb->top->eu->BP, tb->top->eu->SP, tb->top->eu->DI, tb->top->eu->SI);
+                    printf("CS : %04X | DS : %04X | ES : %04X | SS : %04X\n", tb->top->biu->REGISTER_CS, tb->top->biu->REGISTER_DS, tb->top->biu->REGISTER_ES, tb->top->biu->REGISTER_SS);
+                    printf("FLAGS : %04X    O  D  I  T  S  Z  -  A  -  P  -  C\n", tb->top->eu->FLAGS);
+                    printf("                %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s\n",
+                        tb->top->eu->FLAGS & 0x800 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x400 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x200 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x100 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x080 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x040 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x020 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x010 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x008 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x004 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x002 ? "1" : "0",
+                        tb->top->eu->FLAGS & 0x001 ? "1" : "0");
+                    printf("\nCS:IP : %05X    ", address);
+                    for (int b=0;b<a.bytesRead;b++)
+                    {
+                        printf("%02X ", PeekByte(address+b));
+                    }
+                    for (int b=a.bytesRead;b<9;b++)
+                    {
+                        printf("   ");
+                    }
+                    printf(GetOutputBuffer());
+                    printf("\n");
+                    getchar();
+                }
+                
+                tb->top->eu->TRACE_MODE=0;
+                testState=1;
+            }
+            break;
+        case 99:
+            return 1;
+    }
+
+    return 0;
+}
 
 #endif
 
@@ -1839,6 +2145,9 @@ void SimulateInterface(Vtop *tb)
     lastWrite=tb->WR_n;
 }
 
+#endif
+
+#if !UNIT_TEST && !TEST_P88
 int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
 {
     return ticks >= 200000;
@@ -1923,6 +2232,10 @@ int main(int argc, char** argv)
 #if !NO_TRACE
 	tb->trace(trace, 99);
 	trace->open("trace.vcd");
+#endif
+
+#if TEST_P88
+    LoadP88(P88_FILEPATH);
 #endif
 
     tb->RESET=1;

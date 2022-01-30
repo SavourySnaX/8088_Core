@@ -25,6 +25,7 @@ trace.vcd: ./obj_dir/V$(MODULE)
 	@echo
 	@echo "### BUILDING SIM ###"
 	make -C obj_dir -f V$(MODULE).mk V$(MODULE)
+#	make CXXFLAGS='-g' -C obj_dir -f V$(MODULE).mk V$(MODULE)
 
 .stamp.verilate: $(MODULE).v tb_$(MODULE).cpp
 	@echo
