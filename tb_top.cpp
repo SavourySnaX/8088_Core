@@ -6,10 +6,10 @@
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 
-#define UNIT_TEST 1
+#define UNIT_TEST 0
 #define TINY_ROM 0
 #define VIDEO_BOOTSTRAP 0
-#define TEST_P88 0
+#define TEST_P88 1
 #define P88_FILEPATH "/home/snax/ROMS/KONIX_TEST_VIDEO_PAGING.P88"
 
 #define CLK_DIVISOR 8
@@ -2057,9 +2057,9 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
             }
             break;
         case 2:
-            if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0))
+            if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0) && (tb->top->biu->prefetchFull==1))
             {
-                // At this point an instruction has completed.. 
+                // At this point an instruction has completed.. (and the prefetch q is full)
 
                 int address = (tb->top->biu->REGISTER_CS*16) + (tb->top->biu->REGISTER_IP - tb->top->biu->qSize);
                 if (address == startDebuggingAddress)
@@ -2101,9 +2101,11 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                     {
                         printf("   ");
                     }
-                    printf(GetOutputBuffer());
-                    printf("\n");
-                    getchar();
+                    printf("%s\n",GetOutputBuffer());
+                    int v=getchar();
+                    printf("%d\n",v);
+                    if (v!=10)
+                        return 1;
                 }
                 
                 tb->top->eu->TRACE_MODE=0;

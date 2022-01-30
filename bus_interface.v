@@ -56,7 +56,7 @@ module bus_interface
 
     output [7:0] prefetchTop,
     output prefetchEmpty, 
-    output prefetchFull,
+    output prefetchFull /*verilator public */,
     output indirectBusOpInProgress /* verilator public */,
     output suspending   /* verilator public */
   );
@@ -165,15 +165,15 @@ begin
         prefetchReadAddr=prefetchReadAddr+1;
 
     if (latchPCStrobe[1]==0 && latchPCStrobe[0]==1)
-        REGISTER_IP=OPRw;
+        REGISTER_IP<=OPRw;
     if (latchESStrobe[1]==0 && latchESStrobe[0]==1)
-        REGISTER_ES=OPRw;
+        REGISTER_ES<=OPRw;
     if (latchCSStrobe[1]==0 && latchCSStrobe[0]==1)
-        REGISTER_CS=OPRw;
+        REGISTER_CS<=OPRw;
     if (latchSSStrobe[1]==0 && latchSSStrobe[0]==1)
-        REGISTER_SS=OPRw;
+        REGISTER_SS<=OPRw;
     if (latchDSStrobe[1]==0 && latchDSStrobe[0]==1)
-        REGISTER_DS=OPRw;
+        REGISTER_DS<=OPRw;
 
     if (suspendStrobe[1]==0 && suspendStrobe[0]==1)
         requestPrefetchHold<=1;
@@ -181,7 +181,7 @@ begin
     if (correctStrobe[1]==0 && correctStrobe[0]==1)
     begin
         // Q should be stopped, so adjust PC back by number of bytes in Q
-        REGISTER_IP=REGISTER_IP - qSize;
+        REGISTER_IP<=REGISTER_IP - qSize;
     end
 
     // Sync with execstate?
@@ -279,7 +279,8 @@ begin
                             begin
                                 prefetchQueue[prefetchWriteAddr[1:0]]<=inAD;
                                 prefetchWriteAddr=prefetchWriteAddr+1;
-                            end
+                                REGISTER_IP<=REGISTER_IP+1;
+                           end
 
                         end 
                     3'b110:  
@@ -306,11 +307,6 @@ begin
                         begin
                         
                             // rdy next bus cycle
-                            if ((~indirectBusCycle) & (prefetchFull==0) & (holdPrefetch==0))
-                            begin
-                                    REGISTER_IP=REGISTER_IP+1;
-                            end
-
                             indirectBusCycle<=(indirectBytes!=0);
 
                             if (requestPrefetchHold)
