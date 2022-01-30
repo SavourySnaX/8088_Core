@@ -6,10 +6,10 @@
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 
-#define UNIT_TEST 0
+#define UNIT_TEST 1
 #define TINY_ROM 0
 #define VIDEO_BOOTSTRAP 0
-#define TEST_P88 1
+#define TEST_P88 0
 #define P88_FILEPATH "/home/snax/ROMS/KONIX_TEST_VIDEO_PAGING.P88"
 
 #define CLK_DIVISOR 8
@@ -658,7 +658,7 @@ int ValidateLoop(const char* testData, int counter, int testCnt, int regInitVal)
 int ValidateOutA(const char* testData, int counter, int testCnt, int regInitVal)
 {
     int word = Extract(testData,'W',counter,testCnt);
-    int immediateValueL = Extract(testData,'l', counter, testCnt);
+    int immediateValueL = Extract(testData,'L', counter, testCnt);
 
     if (readWriteLatchedAddress[captureIdx]!=immediateValueL)
     {
@@ -698,6 +698,51 @@ int ValidateOutA(const char* testData, int counter, int testCnt, int regInitVal)
 
     return 1;
 }
+
+int ValidateInA(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int immediateValueL = Extract(testData,'L', counter, testCnt);
+
+    if (readWriteLatchedAddress[captureIdx]!=immediateValueL)
+    {
+        printf("Failed - first Address Read != expected (%08X)!=(%08X)\n", readWriteLatchedAddress[captureIdx],immediateValueL);
+        return 0;
+    }
+    if (readWriteLatchedType[captureIdx]!=0)
+    {
+        printf("Failed - first Address Read != IO (%d)!=(%d)\n", readWriteLatchedType[captureIdx],0);
+        return 0;
+    }
+    if (lastReadCapture[captureIdx]!=(tb->top->eu->AX&0xFF))
+    {
+        printf("Failed - first Byte Read != (expected) (%02X)!=(%02X)\n", lastWriteCapture[captureIdx],(tb->top->eu->AX&0xFF));
+        return 0;
+    }
+    captureIdx++;
+    if (word)
+    {
+        if (readWriteLatchedAddress[captureIdx]!=immediateValueL+1)
+        {
+            printf("Failed - second Address Read != expected (%08X)!=(%08X)\n", readWriteLatchedAddress[captureIdx],immediateValueL+1);
+            return 0;
+        }
+        if (readWriteLatchedType[captureIdx]!=0)
+        {
+            printf("Failed - second Address Read != IO (%d)!=(%d)\n", readWriteLatchedType[captureIdx],0);
+            return 0;
+        }
+        if (lastReadCapture[captureIdx]!=(tb->top->eu->AX>>8))
+        {
+            printf("Failed - second Byte Read != (expected) (%02X)!=(%02X)\n", lastWriteCapture[captureIdx],(tb->top->eu->AX>>8));
+            return 0;
+        }
+        captureIdx++;
+    }
+
+    return 1;
+}
+
 
 int ValidateFlagClear(const char* testData, int counter, int testCnt, int regInitVal)
 {
@@ -1506,7 +1551,6 @@ int ValidateSTOS(const char* testData, int counter, int testCnt, int regInitVal)
         return 0;
     }
 
-    printf("%04X %04X\n",store, hValue);
     return store==hValue;
 }
 
@@ -1573,8 +1617,8 @@ const char* testArray[]={
     "11101010 llllllll hhhhhhhh LLLLLLLL HHHHHHHH ",            (const char*)ValidateJmpInterSeg,               (const char*)DefaultTestInit,   (const char*)0x0000,      // jmp ofs seg
     "11100010 llllllll ",                                       (const char*)ValidateLoop,                      (const char*)DefaultTestInit,   (const char*)0x0001,      // loop (not taken)
     "11100010 llllllll ",                                       (const char*)ValidateLoop,                      (const char*)DefaultTestInit,   (const char*)0x0000,      // loop (taken)
-    "1110011W llllllll ",                                       (const char*)ValidateOutA,                      (const char*)DefaultTestInit,   (const char*)0x0000,      // out ib, al/ax
-    "1110011W llllllll ",                                       (const char*)ValidateOutA,                      (const char*)DefaultTestInit,   (const char*)0x1234,      // out ib, al/ax
+    "1110011W LLLLLLLL ",                                       (const char*)ValidateOutA,                      (const char*)DefaultTestInit,   (const char*)0x0000,      // out ib, al/ax
+    "1110011W LLLLLLLL ",                                       (const char*)ValidateOutA,                      (const char*)DefaultTestInit,   (const char*)0x1234,      // out ib, al/ax
     "11111010 ",                                                (const char*)ValidateFlagClear,                 (const char*)SetFlags,          (const char*)(FLAG_I),    // cli
     "100010DW MMRRRmmm llllllll hhhhhhhh ",                     (const char*)ValidateMovMRMReg,                 (const char*)RegisterNum,       (const char*)0x1000,      // mov rm<->r
     "100011D0 MM0RRmmm llllllll hhhhhhhh ",                     (const char*)ValidateMovRMSR,                   (const char*)RegisterNum,       (const char*)0x1000,      // mov rm<->sr
@@ -1590,6 +1634,7 @@ const char* testArray[]={
     "1010101W ",                                                (const char*)ValidateSTOS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // STOS (D set)
     "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP STOS (CX==0) 
     "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP STOS (CX==5) 
+    "1110010W LLLLLLLL ",                                       (const char*)ValidateInA,                       (const char*)DefaultTestInit,   (const char*)0x0000,      // in ib, al/ax
 #endif
     0
 };
@@ -1975,7 +2020,7 @@ int HandleExecuteSection(FILE* inFile)
 		exit(1);
 	}
 
-    offset+=5;  // HACK
+    offset+=0x94;  // HACK
 
     // Create lJMP in RESET address
     ROM[0xFFFF0&(ROMSIZE-1)]=0xEA;

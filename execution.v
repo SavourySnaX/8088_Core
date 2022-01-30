@@ -172,6 +172,8 @@ begin
     end
     else if (inst[7:1] == 7'b1110011)                    // OUT ib, AL/AX
         executionState <= 9'h0B0;
+    else if (inst[7:1] == 7'b1110010)                    // IN AL/AX, ib
+        executionState <= 9'h0AC;
     else if (inst[7:4] == 4'b0100)                       // INC/DEC rp
         executionState <= 9'h17C;
     else if ({inst[7:2],inst[0]} == 7'b1110101)          // JMP rel8/rel16
@@ -658,6 +660,52 @@ begin
                         // HL -> tmpa    
                         tmpa<=BX;
                         executionState<=9'h1f7; //EAOFFSET
+                    end
+
+//0ac A C E  HIJ L  OPQRSTU       Q     -> tmpbL                           01110010?.00  IN A,ib
+                9'h0AC:
+                    begin
+                        // Q->tmpbL
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[7:0]<=prefetchTop; // no need to sign extend
+                            readTop<=1;
+                            executionState<=9'h0ad;
+                        end
+                    end
+//0ad ABC EF HIJ  MN     T        ZERO  -> tmpbH     1   PASS  tmpb                      
+                9'h0AD:
+                    begin
+                        // 0->tmpbH  PASS tmpb
+                        tmpb[15:8]<=0;
+                        aluAselect<=2'b01;     // ALUA = tmpB
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_PASS;   // PASS A
+                        executionState<=9'h0ae;
+                    end
+//0ae A C  F  I  LM     STU       SIGMA -> IND       6   R     D0,P0                     
+                9'h0AE:
+                    begin
+                        // SIGMA -> IND
+                        IND<=SIGMA;
+                        indirect<=1;
+                        indirectSeg<=SEG_ZERO;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=0;
+                        ind_readWrite<=0;
+                        executionState<=9'h0af;
+                    end
+//0af  B  E   IJ L  OPQR          OPR   -> M         4   none  RNI          
+                9'h0AF:
+                    begin
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            if (instruction[0])
+                                AX<=OPRr;
+                            else
+                                AX[7:0]<=OPRr[7:0];
+                            executionState<=9'h1fd; // RNI
+                        end
                     end
 
 //0b0 A C E  HIJ L  OPQRSTU       Q     -> tmpbL                           01110011?.00  OUT ib,A
