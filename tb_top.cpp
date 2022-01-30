@@ -13,7 +13,7 @@
 
 #define CLK_DIVISOR 8
 
-#define NO_TRACE    (0 && UNIT_TEST) | (!UNIT_TEST)
+#define NO_TRACE    (1 && UNIT_TEST) | (!UNIT_TEST)
 
 #define TICK_LIMIT  0//300000
 
@@ -1450,7 +1450,7 @@ int ValidateAluRMR(const char* testData, int counter, int testCnt, int regInitVa
 #define TEST_MULT 4
 
 const char* testArray[]={ 
-#if 0
+#if 1
     "10110RRR LLLLLLLL ",                                       (const char*)ValidateMovRImmediateByte,         (const char*)DefaultTestInit,   (const char*)0x0000,      // mov r,i (byte)
     "10111RRR LLLLLLLL HHHHHHHH ",                              (const char*)ValidateMovRImmediateWord,         (const char*)DefaultTestInit,   (const char*)0x0000,      // mov r,i (word)
     "01000RRR ",                                                (const char*)ValidateIncWordRegister,           (const char*)DefaultTestInit,   (const char*)0x0000,      // inc r (word)

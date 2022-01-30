@@ -52,23 +52,23 @@ wire [15:0] OperationSub;
 wire [15:0] OperationXor;
 wire [15:0] OperationCmp;
 
-wire Op2Inv,opHasCarry;
+wire op2Inv,opHasCarry;
 wire clearOC;
 
 assign OperationL = ~Operation;
-assign OperationPassA   = {17{OperationL[3] & OperationL[2] & OperationL[1] & OperationL[0] }};
-assign OperationNotA    = {17{OperationL[3] & OperationL[2] & OperationL[1] & Operation [0] }};
-assign OperationIncA    = {17{OperationL[3] & OperationL[2] & Operation [1] & OperationL[0] }};
-assign OperationDecA    = {17{OperationL[3] & OperationL[2] & Operation [1] & Operation [0] }};
+assign OperationPassA   = {16{OperationL[3] & OperationL[2] & OperationL[1] & OperationL[0] }};
+assign OperationNotA    = {16{OperationL[3] & OperationL[2] & OperationL[1] & Operation [0] }};
+assign OperationIncA    = {16{OperationL[3] & OperationL[2] & Operation [1] & OperationL[0] }};
+assign OperationDecA    = {16{OperationL[3] & OperationL[2] & Operation [1] & Operation [0] }};
 
-assign OperationAdd     = {17{Operation [3] & OperationL[2] & OperationL[1] & OperationL[0] }};
-assign OperationOr      = {17{Operation [3] & OperationL[2] & OperationL[1] & Operation [0] }};
-assign OperationAdc     = {17{Operation [3] & OperationL[2] & Operation [1] & OperationL[0] }};
-assign OperationSbb     = {17{Operation [3] & OperationL[2] & Operation [1] & Operation [0] }};
-assign OperationAnd     = {17{Operation [3] & Operation [2] & OperationL[1] & OperationL[0] }};
-assign OperationSub     = {17{Operation [3] & Operation [2] & OperationL[1] & Operation [0] }};
-assign OperationXor     = {17{Operation [3] & Operation [2] & Operation [1] & OperationL[0] }};
-assign OperationCmp     = {17{Operation [3] & Operation [2] & Operation [1] & Operation [0] }};
+assign OperationAdd     = {16{Operation [3] & OperationL[2] & OperationL[1] & OperationL[0] }};
+assign OperationOr      = {16{Operation [3] & OperationL[2] & OperationL[1] & Operation [0] }};
+assign OperationAdc     = {16{Operation [3] & OperationL[2] & Operation [1] & OperationL[0] }};
+assign OperationSbb     = {16{Operation [3] & OperationL[2] & Operation [1] & Operation [0] }};
+assign OperationAnd     = {16{Operation [3] & Operation [2] & OperationL[1] & OperationL[0] }};
+assign OperationSub     = {16{Operation [3] & Operation [2] & OperationL[1] & Operation [0] }};
+assign OperationXor     = {16{Operation [3] & Operation [2] & Operation [1] & OperationL[0] }};
+assign OperationCmp     = {16{Operation [3] & Operation [2] & Operation [1] & Operation [0] }};
 
 assign Ai = 
             ( ( A)  & OperationPassA )  |
@@ -85,9 +85,9 @@ assign Bi =
             ( ( B)  & (OperationAdd | OperationOr | OperationAdc | OperationAnd | OperationXor)) |
             ( (~B)  & (OperationSbb | OperationSub | OperationCmp) );
 
-assign op2Inv = (OperationDecA | OperationSbb | OperationSub | OperationCmp);
-assign opHasCarry = OperationAdc | OperationSbb;
-assign clearOC = OperationAnd | OperationOr | OperationXor;
+assign op2Inv = (OperationDecA[0] | OperationSbb[0] | OperationSub[0] | OperationCmp[0]);
+assign opHasCarry = OperationAdc[0] | OperationSbb[0];
+assign clearOC = OperationAnd[0] | OperationOr[0] | OperationXor[0];
 
 
 assign carry[0] = opHasCarry ? (op2Inv ? ~carryIn : carryIn ) : (op2Inv ? 1 : 0);

@@ -136,7 +136,7 @@ parameter ALU_OP_CMP = 4'b1111;
 reg [8:0] PostEffectiveAddressReturn;   // EA calculation finsh jumps to here
 
 // alu
-alu myalu(.A(aluA),.B(aluB),.Operation(operation),.byteWord(aluWord),.carryIn(FLAGS[F_Carry]),.S(SIGMA),.F_Overflow(fo), .F_Neg(fs), .F_Zero(fz), .F_Aux(fa), .F_Parity(fp), .F_Carry(fc));
+alu myalu(.A(aluA),.B(aluB),.Operation(operation),.byteWord(aluWord),.carryIn(FLAGS[FLAG_C_IDX]),.S(SIGMA),.F_Overflow(fo), .F_Neg(fs), .F_Zero(fz), .F_Aux(fa), .F_Parity(fp), .F_Carry(fc));
 
 assign aluA = (tmpa & {16{aluAselect==2'b00}}) |
               (tmpb & {16{aluAselect==2'b01}}) |
@@ -146,62 +146,62 @@ assign aluB = (tmpa & {16{aluBselect==2'b00}}) |
               (tmpb & {16{aluBselect==2'b01}}) |
               (tmpc & {16{aluBselect==2'b10}});
 
-function automatic [8:0] FetchExecStateFromInstruction(input [7:0] inst);
+task automatic FetchExecStateFromInstruction(input [7:0] inst);
 begin
     readModifyWrite = 0;
     if (inst[7:2] == 6'b100010)                              // MOV rmw<->r
     begin
         PostEffectiveAddressReturn = 9'h000;
-        FetchExecStateFromInstruction = 9'h1f5;
+        executionState <= 9'h1f5;
     end
     else if (inst[7:4] == 4'b1011)                            // MOV rrr,i
-        FetchExecStateFromInstruction = 9'h01C;
+        executionState <= 9'h01C;
     else if (inst[7:1] == 7'b1100011)                         // MOV rm,i
     begin
         instruction[1]<=0;                               // acts as if direction is 0
         PostEffectiveAddressReturn = 9'h014;
-        FetchExecStateFromInstruction = 9'h1f5;
+        executionState <= 9'h1f5;
     end
     else if ({inst[7:2],inst[0]} == 7'b1000110)          // MOV rmw<->sr
     begin
         instruction[0]<=1;                               // its a word operation
         PostEffectiveAddressReturn = 9'h0EC;
-        FetchExecStateFromInstruction = 9'h1f5;
+        executionState <= 9'h1f5;
     end
     else if (inst[7:1] == 7'b1110011)                    // OUT ib, AL/AX
-        FetchExecStateFromInstruction = 9'h0B0;
+        executionState <= 9'h0B0;
     else if (inst[7:4] == 4'b0100)                       // INC/DEC rp
-        FetchExecStateFromInstruction = 9'h17C;
+        executionState <= 9'h17C;
     else if ({inst[7:2],inst[0]} == 7'b1110101)          // JMP rel8/rel16
-        FetchExecStateFromInstruction = 9'h0D0;
+        executionState <= 9'h0D0;
     else if (inst == 8'b11101010)                        // JMP offs segment
-        FetchExecStateFromInstruction = 9'h0E0;
+        executionState <= 9'h0E0;
     else if (inst == 8'b11100010)                        // LOOP
-        FetchExecStateFromInstruction = 9'h140;
+        executionState <= 9'h140;
     else if (inst == 8'b11111010)                        // CLI (not microcoded)
     begin
         FLAGS[FLAG_I_IDX]<=0;
-        FetchExecStateFromInstruction = 9'h143;          // RNI
+        executionState <= 9'h143;          // RNI
     end
     else if (inst == 8'b11111100)                        // CLD (not microcoded)
     begin
         FLAGS[FLAG_D_IDX]<=0;
-        FetchExecStateFromInstruction = 9'h143;          // RNI
+        executionState <= 9'h143;          // RNI
     end
     else if ({inst[7:5],inst[2:0]} == 6'b001110)         // SEGMENT PREFIX
-        FetchExecStateFromInstruction = 9'h005;
+        executionState <= 9'h005;
     else if ({inst[7:6],inst[2:1]} == 4'b0010)           // alu A,i
-        FetchExecStateFromInstruction = 9'h018;
+        executionState <= 9'h018;
     else if ({inst[7:6],inst[2]} == 3'b000)              // alu rm<->r
     begin
         readModifyWrite = 1;
         PostEffectiveAddressReturn = 9'h008;
-        FetchExecStateFromInstruction = 9'h1f5;
+        executionState <= 9'h1f5;
     end
     else
-        FetchExecStateFromInstruction = 9'h1FD;
+        executionState <= 9'h1FD;
 end
-endfunction
+endtask
 
 task automatic WriteToRegister(input W, input [2:0] regNum, input [15:0] in);
 begin
@@ -416,7 +416,7 @@ begin
                             segPrefix<=instruction[4:3];
                             instruction<=prefetchTop;
                             readTop<=1;
-                            executionState<=FetchExecStateFromInstruction(prefetchTop);
+                            FetchExecStateFromInstruction(prefetchTop);
                         end
                     end
 
@@ -1210,7 +1210,7 @@ begin
                             modrm<=8'hFF;
                             segPrefix<=SEG_DS;
                             instruction<=prefetchTop;
-                            executionState<=FetchExecStateFromInstruction(prefetchTop);
+                            FetchExecStateFromInstruction(prefetchTop);
                             readTop<=1;
                         end
 
