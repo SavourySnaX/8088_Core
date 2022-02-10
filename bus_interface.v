@@ -233,10 +233,13 @@ begin
                     3'b000 : 
                         begin
                             // T1
-                            ALE<=1;
-                            enAD<=8'b11111111;
-                            outAD<=address[7:0];
-                            A<=address[19:8];
+                            if (indirectBusCycle | (~prefetchFull))
+                            begin
+                                ALE<=1;
+                                enAD<=8'b11111111;
+                                outAD<=address[7:0];
+                                A<=address[19:8];
+                            end
                         end
                     3'b001:  
                         begin
@@ -254,13 +257,13 @@ begin
                         end
                     3'b011:  
                         begin
-                            if (~indirectBusCycle)
+                            if ((~indirectBusCycle) & (~prefetchFull) )
                             begin
                                 IOM<=1;     // Memory request
                                 RD_n<=0;    // Read
                                 WR_n<=1;
                             end
-                            else
+                            if (indirectBusCycle)
                             begin
                                 IOM<=ind_ioMreq;
                                 RD_n<=ind_readWrite;
@@ -329,7 +332,9 @@ begin
                             end
                         end
                 endcase
-                clockstate = clockstate+1;
+
+                if ((clockstate!=3'b111) | (~prefetchFull) | (indirectBytes!=0))    // Hold Internal Clock State at last state when no work to do
+                    clockstate = clockstate+1;
             end
         end
     end
