@@ -2491,7 +2491,7 @@ const char* testArray[]={
     "1101000W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRM,                   (const char*)RegisterNumFlags,  (const char*)(FLAG_C),    // rot rm,1 (C set)
     "1111011W MM011mmm llllllll hhhhhhhh ",                     (const char*)ValidateNegRM,                     (const char*)RegisterNum,       (const char*)0,           // neg rm
 #endif
-    // TODO ADD TESTS FOR Jcond, CALL cb, PUSH sr, POP sr, RET, MOV [i],A, XCHG rm,r
+    // TODO ADD TESTS FOR Jcond, CALL cb, PUSH sr, POP sr, RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], TEST rm,i, PUSH rw, POP rw
     0
 };
 
@@ -2876,7 +2876,7 @@ int HandleExecuteSection(FILE* inFile)
 		exit(1);
 	}
 
-    offset+=0x00;  // HACK
+    offset+=0;  // HACK
 
     // Create lJMP in RESET address
     ROM[0xFFFF0&(ROMSIZE-1)]=0xEA;
@@ -2932,7 +2932,7 @@ unsigned char PeekByte(unsigned int address)
 #include "disasm.c"
 
 int startDebuggingAddress = 0x801AA;
-int showDebugger=0;
+int showDebugger=1;
 
 #define RAND_IO_SIZE 16
 int IORand[RAND_IO_SIZE]={0x00,0x00,0xFF,0xFF,0x00,0x80,0xFF,0x7F,0x11,0x11,0x22,0x22,0x33,0x33,0x44,0x44};
