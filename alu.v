@@ -20,25 +20,26 @@
 
 module alu
   (
+      input CLKx4,
       input [15:0] A,
       input [15:0] B,
       input [3:0] Operation,
       input byteWord,
       input carryIn,
-      output [15:0] S,
+      output reg [15:0] S,
 
-      output F_Overflow,
-      output F_Neg,
-      output F_Zero,
-      output F_Aux,
-      output F_Parity,
-      output F_Carry
+      output reg F_Overflow,
+      output reg F_Neg,
+      output reg F_Zero,
+      output reg F_Aux,
+      output reg F_Parity,
+      output reg F_Carry
   );
 
 //Generate adder (allows us to extract multiple carries)
 
 wire [16:0] carry;
-wire [15:0] Ai,Bi,resultAdder,result;
+wire [15:0] Ai,Bi,resultAdder;
 
 wire [3:0] OperationL;
 wire [15:0] OperationPassA;
@@ -100,27 +101,29 @@ assign op2Inv = (OperationDecA[0] | OperationDecA2[0] | OperationSbb[0] | Operat
 assign opHasCarry = OperationAdc[0] | OperationSbb[0];
 assign clearOC = OperationAnd[0] | OperationOr[0] | OperationXor[0];
 
+always @(posedge CLKx4)
+begin
 
-assign carry[0] = opHasCarry ? (op2Inv ? ~carryIn : carryIn ) : (op2Inv ? 1 : 0);
-genvar i;
-generate
-  for (i=0; i < 16; i=i+1) 
-    begin : GEN_ADDER
-      assign resultAdder[i] =  Ai[i] ^ Bi[i] ^ carry[i];     
-      assign carry[i+1]   = (Ai[i] & Bi[i]) | (Ai[i] & carry[i]) | (Bi[i] & carry[i]);
-    end
-endgenerate
+  carry[0] <= opHasCarry ? (op2Inv ? ~carryIn : carryIn ) : (op2Inv ? 1 : 0);
 
-assign S = (resultAdder & {16{~clearOC}})                |
-           ((Ai | Bi)   & {16{ clearOC}} & OperationOr)  |
-           ((Ai & Bi)   & {16{ clearOC}} & OperationAnd) |
-           ((Ai ^ Bi)   & {16{ clearOC}} & OperationXor);
+  carry[4] <= ({1'b0,Ai[3:0]} + {1'b0,Bi[3:0]} + {4'h0,carry[0]})>>4;
+  carry[7] <= ({1'b0,Ai[6:0]} + {1'b0,Bi[6:0]} + {6'h0,carry[0]})>>7;
+  carry[8] <= ({1'b0,Ai[7:0]} + {1'b0,Bi[7:0]} + {7'h0,carry[0]})>>8;
+  carry[15] <= ({1'b0,Ai[14:0]} + {1'b0,Bi[14:0]} + {14'h0,carry[0]})>>15;
+  carry[16] <= ({1'b0,Ai[15:0]} + {1'b0,Bi[15:0]} + {15'h0,carry[0]})>>16;
 
-assign F_Overflow = clearOC ? 0 : byteWord ? carry[16] ^ carry[15] : carry[8] ^ carry[7];
-assign F_Neg = byteWord ? S[15] : S[7];
-assign F_Zero = byteWord ? (S[15:0] == 0) : (S[7:0] == 0);
-assign F_Aux = carry[4] ^ op2Inv;
-assign F_Parity = ~(S[0] ^ S[1] ^ S[2] ^ S[3] ^ S[4] ^ S[5] ^ S[6] ^ S[7]);
-assign F_Carry = clearOC ? 0 : byteWord ? carry[16] ^ op2Inv : carry[8] ^ op2Inv;
+  S <= ((Ai[15:0] + Bi[15:0] + {15'h0,carry[0]}) & {16{~clearOC}})                |
+      ((Ai | Bi)   & {16{ clearOC}} & OperationOr)  |
+      ((Ai & Bi)   & {16{ clearOC}} & OperationAnd) |
+      ((Ai ^ Bi)   & {16{ clearOC}} & OperationXor);
+
+  F_Overflow <= clearOC ? 0 : byteWord ? carry[16] ^ carry[15] : carry[8] ^ carry[7];
+  F_Neg <= byteWord ? S[15] : S[7];
+  F_Zero <= byteWord ? (S[15:0] == 0) : (S[7:0] == 0);
+  F_Aux <= carry[4] ^ op2Inv;
+  F_Parity <= ~(S[0] ^ S[1] ^ S[2] ^ S[3] ^ S[4] ^ S[5] ^ S[6] ^ S[7]);
+  F_Carry <= clearOC ? 0 : byteWord ? carry[16] ^ op2Inv : carry[8] ^ op2Inv;
+
+end
 
 endmodule

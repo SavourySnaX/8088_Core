@@ -11,23 +11,25 @@
 
 module shifter
   (
+      input CLKx4,
       input [15:0] A,
       input [2:0] Operation,
       input byteWord,
       input carryIn,
-      output [15:0] S,
+      output reg [15:0] S,
 
-      output F_Overflow,
-      output F_Neg,
-      output F_Zero,
-      output F_Aux,
-      output F_Parity,
-      output F_Carry
+      output reg F_Overflow,
+      output reg F_Neg,
+      output reg F_Zero,
+      output reg F_Aux,
+      output reg F_Parity,
+      output reg F_Carry
   );
 
 //Generate adder (allows us to extract multiple carries)
 
-wire [15:0] result8,result16;
+wire [15:0] result16;
+wire [7:0] result8;
 
 wire o,c;
 
@@ -80,15 +82,19 @@ assign c =
             ((byteWord ? A[15] : A[7]) & (OperationShl[0] | OperationRol[0] | OperationRcl[0])) |                          //SHL/SAL/ROL/RCL
             ((byteWord ? A[ 0] : A[0]) & (OperationShr[0] | OperationSar[0] | OperationRor[0] | OperationRcr[0]));         //SHR/SAR/ROR/RCR
 
-assign S = byteWord ? result16 : result8;
+always @(posedge CLKx4)
+begin
 
-// todo 8bit math flags
-assign F_Overflow = o;
-assign F_Neg = byteWord ? S[15] : S[7];
-assign F_Zero = byteWord ? (S[15:0] == 0) : (S[7:0] == 0);
-assign F_Aux = S[4];
-assign F_Parity = ~(S[0] ^ S[1] ^ S[2] ^ S[3] ^ S[4] ^ S[5] ^ S[6] ^ S[7]);
-assign F_Carry = c;
+  S <= byteWord ? result16 : {8'h00,result8};
+
+  F_Overflow <= o;
+  F_Neg <= byteWord ? S[15] : S[7];
+  F_Zero <= byteWord ? (S[15:0] == 0) : (S[7:0] == 0);
+  F_Aux <= S[4];
+  F_Parity <= ~(S[0] ^ S[1] ^ S[2] ^ S[3] ^ S[4] ^ S[5] ^ S[6] ^ S[7]);
+  F_Carry <= c;
+
+end
 
 endmodule
 

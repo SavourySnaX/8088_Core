@@ -11,12 +11,14 @@ module execution
     input prefetchFull,
     input indirectBusOpInProgress,
     input suspending,
+    input irqPending,
 
     input [15:0]        REGISTER_IP,
     input [15:0]        REGISTER_ES,
     input [15:0]        REGISTER_CS,
     input [15:0]        REGISTER_DS,
     input [15:0]        REGISTER_SS,
+    output reg [15:0]   UpdateReg,
 
     output reg [15:0] IND, //offset for read/write
     output reg [2:0]  indirectSeg,
@@ -30,6 +32,7 @@ module execution
     output reg correct,
     output reg flush /*verilator public*/,
     output reg indirect,
+    output reg irq,
     output reg latchPC,
     output reg latchCS,
     output reg latchDS,
@@ -47,7 +50,7 @@ reg [8:0] executionState /* verilator public */;
 reg [7:0] instruction /* verilator public */;
 reg [7:0] modrm /* verilator public */;
 
-reg [2:0] clkEdgeSample;
+reg clkEdgeSample;
 reg [2:0] segPrefix;
 
 reg tick;
@@ -73,7 +76,6 @@ wire [15:0] SIGMA,sigmaALU,sigmaShifter;
 
 // microcodeing
 reg [3:0]   code_M;            // Word|RegIndex
-reg [1:0]   cope_SR;
 reg         code_TmpA2M;        // TODO collapse these so we can switch between tmpA/B/C/Sigma ??
 reg         code_TmpB2M;
 reg         code_TmpB2R;
@@ -105,6 +107,7 @@ parameter FLAG_P_IDX = 2;
 parameter FLAG_A_IDX = 4;
 parameter FLAG_Z_IDX = 6;
 parameter FLAG_S_IDX = 7;
+parameter FLAG_T_IDX = 8;
 parameter FLAG_I_IDX = 9;
 parameter FLAG_D_IDX = 10;
 parameter FLAG_O_IDX = 11;
@@ -114,6 +117,7 @@ parameter FLAG_P_MSK = 16'h0001<<FLAG_P_IDX;
 parameter FLAG_A_MSK = 16'h0001<<FLAG_A_IDX;
 parameter FLAG_Z_MSK = 16'h0001<<FLAG_Z_IDX;
 parameter FLAG_S_MSK = 16'h0001<<FLAG_S_IDX;
+parameter FLAG_T_MSK = 16'h0001<<FLAG_T_IDX;
 parameter FLAG_I_MSK = 16'h0001<<FLAG_I_IDX;
 parameter FLAG_D_MSK = 16'h0001<<FLAG_D_IDX;
 parameter FLAG_O_MSK = 16'h0001<<FLAG_O_IDX;
@@ -172,8 +176,8 @@ assign Cond_G  =(FLAGS[FLAG_S_IDX] == FLAGS[FLAG_O_IDX]) & (~FLAGS[FLAG_Z_IDX]);
 reg [8:0] PostEffectiveAddressReturn;   // EA calculation finsh jumps to here
 
 // alu
-alu myalu(.A(aluA),.B(aluB),.Operation(operation),.byteWord(aluWord),.carryIn(FLAGS[FLAG_C_IDX]),.S(sigmaALU),.F_Overflow(fo), .F_Neg(fs), .F_Zero(fz), .F_Aux(fa), .F_Parity(fp), .F_Carry(fc));
-shifter myshifter(.A(aluA),.Operation(operation[2:0]),.byteWord(aluWord),.carryIn(FLAGS[FLAG_C_IDX]),.S(sigmaShifter),.F_Overflow(sho), .F_Neg(shs), .F_Zero(shz), .F_Aux(sha), .F_Parity(shp), .F_Carry(shc));
+alu myalu(.CLKx4(CLKx4), .A(aluA),.B(aluB),.Operation(operation),.byteWord(aluWord),.carryIn(FLAGS[FLAG_C_IDX]),.S(sigmaALU),.F_Overflow(fo), .F_Neg(fs), .F_Zero(fz), .F_Aux(fa), .F_Parity(fp), .F_Carry(fc));
+shifter myshifter(.CLKx4(CLKx4), .A(aluA),.Operation(operation[2:0]),.byteWord(aluWord),.carryIn(FLAGS[FLAG_C_IDX]),.S(sigmaShifter),.F_Overflow(sho), .F_Neg(shs), .F_Zero(shz), .F_Aux(sha), .F_Parity(shp), .F_Carry(shc));
 
 assign SIGMA=selectShifter? sigmaShifter : sigmaALU;
 
@@ -274,6 +278,10 @@ begin
         executionState <= 9'h038;
     else if (inst[7:0] == 8'b11000011)                    // RET
         executionState <= 9'h0bc;
+    else if (inst[7:0] == 8'b11001111)                    // IRET
+        executionState <= 9'h0c8;
+    else if (inst[7:0] == 8'b11110100)                    // HLT
+        executionState <= 9'h1fb;
     else if (inst[7:1] == 7'b1010001)                    // MOV [i],A
         executionState <= 9'h064;
     else if (inst[7:1] == 7'b1000011)                    // XCHG rm,r
@@ -291,7 +299,8 @@ begin
     else
     begin
         executionState <= 9'h1FD;
-        $displayb("UNKNOWN INSTRUCTION %b\n",inst);
+        $displayb("%h UNKNOWN INSTRUCTION %b\n",REGISTER_IP, inst);
+        TRACE_MODE<=1;
     end
 end
 endtask
@@ -349,14 +358,14 @@ begin
     begin
         // AL|CL|DL|BL|AH|CH|DH|BH
         case (regNum)
-            3'b000:     ReadFromRegister=AX[7:0];
-            3'b001:     ReadFromRegister=CX[7:0];
-            3'b010:     ReadFromRegister=DX[7:0];
-            3'b011:     ReadFromRegister=BX[7:0];
-            3'b100:     ReadFromRegister=AX[15:8];
-            3'b101:     ReadFromRegister=CX[15:8];
-            3'b110:     ReadFromRegister=DX[15:8];
-            3'b111:     ReadFromRegister=BX[15:8];
+            3'b000:     ReadFromRegister={8'h00,AX[7:0]};
+            3'b001:     ReadFromRegister={8'h00,CX[7:0]};
+            3'b010:     ReadFromRegister={8'h00,DX[7:0]};
+            3'b011:     ReadFromRegister={8'h00,BX[7:0]};
+            3'b100:     ReadFromRegister={8'h00,AX[15:8]};
+            3'b101:     ReadFromRegister={8'h00,CX[15:8]};
+            3'b110:     ReadFromRegister={8'h00,DX[15:8]};
+            3'b111:     ReadFromRegister={8'h00,BX[15:8]};
         endcase
     end
 end
@@ -364,7 +373,7 @@ endfunction
 
 task automatic WriteToSRRegister(input[1:0] sr, input [15:0] in);
 begin
-    OPRw<=in;
+    UpdateReg<=in;
     case (sr)
         2'b00: latchES<=1;
         2'b01: latchCS<=1;
@@ -385,11 +394,11 @@ begin
 end
 endfunction
 
+/* verilator lint_off BLKSEQ */
 always @(posedge(CLKx4))
 begin
     
-    clkEdgeSample = clkEdgeSample << 1;
-    clkEdgeSample[0]=CLK;
+    clkEdgeSample<=CLK;
 
     if (RESET == 1)
     begin
@@ -400,7 +409,7 @@ begin
     end
     else
     begin
-        if (clkEdgeSample[2]==1'b1 && clkEdgeSample[1]==1'b0)   // negative slope
+        if (clkEdgeSample==1'b1 && CLK==1'b0)   // negative slope
         begin
             tick<=~suspending;
         end
@@ -507,7 +516,7 @@ begin
                     begin
                         if ((prefetchEmpty|indirectBusOpInProgress)==0)
                         begin
-                            segPrefix<=instruction[4:3];
+                            segPrefix<={1'b0,instruction[4:3]};
                             instruction<=prefetchTop;
                             readTop<=1;
                             FetchExecStateFromInstruction(prefetchTop);
@@ -812,7 +821,7 @@ begin
                         selectShifter<=0;
                         aluAselect<=2'b01;     // ALUA = tmpb
                         aluWord<=instruction[0];
-                        operation<=ALU_OP_INC+modrm[3];  // Inc/Dec
+                        operation<=ALU_OP_INC+{3'h0,modrm[3]};  // Inc/Dec
                         
                         executionState<=9'h021;
                     end
@@ -1004,6 +1013,86 @@ begin
                         executionState<=9'h1FD; // RNI
                     end
 
+//06c A C  F  I  L  OPQR T        SIGMA -> IND       4   none  CORR        ?11111011.01  FARCALL2
+                9'h06C:
+                    begin
+                        // SIGMA->IND
+                        IND<=SIGMA;
+                        correct<=1;
+                        executionState<=9'h06d;
+                    end
+//06d  BC    H   LM O  R T        RC    -> OPR       6   w     DS,M2                     
+                9'h06D:
+                    begin
+                        // RC->OPR  w DS,M2
+                        OPRw<=REGISTER_CS;
+                        indirect<=1;
+                        indirectSeg<=SEG_SS;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=1;
+                        executionState<=9'h06e;
+                    end
+//06e A     G I   MN    S         tmpa  -> RC        1   PASS  tmpc                      
+                9'h06E:
+                    begin
+                        // tmpa->RC  PASS tmpc
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            IND<=IND-2;
+                            UpdateReg<=tmpa;
+                            latchCS<=1;
+                            selectShifter<=0;
+                            aluAselect<=2'b10;     // ALUA = tmpC
+                            aluWord<=1'b1;
+                            operation<=ALU_OP_PASS;   // PASS A
+                            executionState<=9'h06f;
+                        end
+                    end
+//06f  BC     I  L N      U       PC    -> OPR       5   UNC   NEARCALL               
+                9'h06F:
+                    begin
+                        // PC->OPR  UNC NEARCALL
+                        OPRw<=REGISTER_IP;
+                        executionState<=9'h077;
+                    end
+
+//077   C   GHI  L     RSTU       tmpb  -> PC        4   FLUSH none                      NEARCALL
+                9'h077:
+                    begin
+                        // tmpb->PC   FLUSH
+                        UpdateReg<=tmpb;
+                        latchPC<=1;
+                        flush<=1;
+                        executionState<=9'h078;
+                    end
+//078  BCD   HI  L  OPQRSTU       IND   -> tmpc                            ?11111010.01  
+                9'h078:
+                    begin
+                        // IND->tmpc
+                        tmpc<=IND;
+                        executionState<=9'h079;
+                    end
+//079 A C  F  I  L  OPQRSTU       SIGMA -> IND                                           
+                9'h079:
+                    begin
+                        // SIGMA->IND
+                        IND<=SIGMA;
+                        executionState<=9'h07a;
+                    end
+//07a   CDEF  I  LM O QR TU       SIGMA -> SP        6   W     DS,P0                     
+                9'h07A:
+                    begin
+                        // SIGMA->SP  W DS,P0
+                        SP<=SIGMA;
+                        indirect<=1;
+                        indirectSeg<=SEG_SS;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=1;
+                        executionState<=9'h1fd; //RNI
+                    end
+
 //07c A C E  HIJ L  OPQRSTU       Q     -> tmpbL                           011101000.00  CALL cw
                 9'h07C:
                     begin
@@ -1060,7 +1149,7 @@ begin
                 9'h081:
                     begin
                         // SIGMA -> PC   FLUSH 
-                        OPRw<=SIGMA;
+                        UpdateReg<=SIGMA;
                         latchPC<=1;
                         flush<=1;   // FLUSH (and resumes prefetch queue)
                         executionState<=9'h082;
@@ -1093,7 +1182,7 @@ begin
                         selectShifter<=1;
                         aluAselect<=2'b01;     // ALUA = tmpb
                         aluWord<=instruction[0];
-                        operation<=modrm[5:3];
+                        operation<={1'b0,modrm[5:3]};
                         executionState<=9'h089;
                     end
 //089  B  EF  I KL  OPQR          SIGMA -> M         4   none  RNI      F                
@@ -1279,7 +1368,7 @@ begin
                     begin
                         if (indirectBusOpInProgress==0)
                         begin
-                            OPRw<=OPRr;
+                            UpdateReg<=OPRr;
                             latchPC<=1;
                             flush<=1;
                             executionState<=9'h0bf;
@@ -1290,6 +1379,105 @@ begin
                     begin
                         SP<=IND+2;
                         executionState<=9'h1fd;     //RNI
+                    end
+
+//0c2 A C  FG I  LM    R          SP    -> IND       6   R     DS,P2                     FARRET
+                9'h0C2:
+                    begin
+                        // SP->IND  R DS,P2
+                        IND<=SP;
+                        indirect<=1;
+                        indirectSeg<=SEG_SS;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h0c3;
+                    end
+//0c3 ABC  F HI  L  OPQR TU                          4   none  SUSP                      
+                9'h0C3:
+                    begin
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            IND<=IND+2;
+                            suspend<=1;
+                            executionState<=9'h0c4; 
+                        end
+                    end
+//0c4   C     IJ   N PQ ST        OPR   -> PC        0   X0       6        0110010?1.01  
+                9'h0C4:
+                    begin
+                        // OPR->PC   X0  6
+                        UpdateReg<=OPRr;
+                        latchPC<=1;
+                        if (instruction[3])
+                            executionState<=9'h0c6;
+                        else
+                            executionState<=9'h0c5;
+                    end
+//0c5 ABC  F HI  L     RS                            4   FLUSH RTN                       
+                9'h0C5:
+                    begin
+                        // FLUSH RTN
+                        flush<=1;
+                        executionState<=PostEffectiveAddressReturn; //RTN
+                    end
+//0c6 ABC  F HI  LM    R                             6   R     DS,P2                     
+                9'h0C6:
+                    begin
+                        // R DS,P2
+                        indirect<=1;
+                        indirectSeg<=SEG_SS;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h0c7;
+                    end
+//0c7 A       IJ L     RS         OPR   -> RC        4   FLUSH RTN                       
+                9'h0C7:
+                    begin
+                        // OPR->RC   FLUSH RTN
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            IND<=IND+2;
+                            UpdateReg<=OPRr;
+                            latchCS<=1;
+                            flush<=1;
+                            executionState<=PostEffectiveAddressReturn; //RTN
+                        end
+                    end
+
+//0c8 ABC  F HI  LMN                                 7   UNC   FARRET      011001111.00  IRET
+                9'h0C8:
+                    begin
+                        PostEffectiveAddressReturn<=9'h0c9;
+                        executionState<=9'h0c2;
+                    end
+//0c9 ABC  F HI  LM    R                             6   R     DS,P2                     
+                9'h0C9:
+                    begin
+                        indirect<=1;
+                        indirectSeg<=SEG_SS;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h0ca;
+                    end
+//0ca ABCD    IJ L  OPQRSTU       OPR   -> F                                             
+                9'h0CA:
+                    begin
+                        // OPR->F
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            FLAGS<=OPRr;
+                            executionState<=9'h0cb; 
+                        end
+                    end
+//0cb   CDE  HI  L  OPQR          IND   -> SP        4   none  RNI                       
+                9'h0CB:
+                    begin
+                        // IND -> SP    RNI
+                        SP<=IND+2;
+                        executionState<=9'h1fd;
                     end
 
 //0d0 A C E  HIJ     P   T        Q     -> tmpbL     0   L8       2        0111010?1.00  JMP cw/JMP cb
@@ -1348,7 +1536,7 @@ begin
                 9'h0D5:
                     begin
                         // SIGMA -> PC   FLUSH RNI
-                        OPRw<=SIGMA;
+                        UpdateReg<=SIGMA;
                         latchPC<=1;
                         flush<=1;   // FLUSH (and resumes prefetch queue)
                         executionState<=9'h1FD; // RNI
@@ -1408,7 +1596,7 @@ begin
                 9'h0E5:
                     begin
                         // tmpb -> PC
-                        OPRw<=tmpb;
+                        UpdateReg<=tmpb;
                         latchPC<=1;
                         executionState<=9'h0E6;
                     end
@@ -1416,7 +1604,7 @@ begin
                 9'h0E6:
                     begin
                         // tmpa -> RC   FLUSH RNI
-                        OPRw<=tmpa;
+                        UpdateReg<=tmpa;
                         latchCS<=1;
                         flush<=1;   // FLUSH (and resumes prefetch queue)
                         executionState<=9'h1FD; // RNI
@@ -1710,7 +1898,7 @@ begin
                         selectShifter<=0;
                         aluAselect<=2'b01;     // ALUA = tmpb
                         aluWord<=1'b1;
-                        operation<=ALU_OP_INC+instruction[3];  // Inc/Dec
+                        operation<=ALU_OP_INC+{3'h0,instruction[3]};  // Inc/Dec
 
                         executionState<=9'h17D;
                     end
@@ -1725,6 +1913,146 @@ begin
                         code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK;
 
                         executionState<=9'h1FD; // RNI
+                    end
+
+//19a  BCD FG    LM  P  STU       XA    -> tmpc      6   IRQ   D0,P0                     IRQ 
+                9'h19A:
+                    begin
+                        // XA -> tmpc     IRQ D0,P0
+                        tmpc<=AX;
+                        IND<=0; // Should float ..
+                        indirect<=1;
+                        irq<=1; // do an irq indirect cycle (not a strobe)
+                        indirectSeg<=SEG_ZERO;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h19b;
+                    end
+//19b    DE   IJ L  OPQR TU       OPR   -> XA        4   none  SUSP                      
+                9'h19B:
+                    begin
+                        if ((indirectBusOpInProgress)==0)
+                        begin
+                            // OPR -> XA    SUSP
+                            irq<=0;
+                            AX<=OPRr;
+                            suspend<=1;
+                            executionState<=9'h19c;
+                        end
+                    end
+//19c A C EF     L  OPQRSTU       X     -> tmpbL                           100000000.01  
+                9'h19C:
+                    begin
+                        // X -> tmbl
+                        tmpb[7:0]<=AX[15:8];
+                        executionState<=9'h19d;
+                    end
+//19d    DE G IJ L  OPQRSTU       tmpc  -> XA                                            INTR/// THIS MIGHT BE 19E not 19D
+                9'h19D:
+                    begin
+                        // tmpc -> XA
+                        AX<=tmpc;
+                        executionState<=9'h19e;
+                    end
+//19e ABC EF HIJ  M      T        ZERO  -> tmpbH     1   ADD   tmpb                      
+                9'h19E:
+                    begin
+                        // ZERO -> tmpbH  ADD
+                        tmpb[15:8]<=0;
+                        selectShifter<=0;
+                        aluAselect<=2'b01;     // ALUA = tmpb
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_ADD;     // A+B
+                        executionState<=9'h19f;
+                    end
+//19f A CD F  I  L  OPQRSTU       SIGMA -> tmpb                                          
+                9'h19F:
+                    begin
+                        // SIGMA -> tmpb
+                        tmpb<=SIGMA;
+                        executionState<=9'h1a0;
+                    end
+//1a0 A C  F  I  LM     S         SIGMA -> IND       6   R     D0,P2       100000000.10  
+                9'h1A0:
+                    begin
+                        // SIGMA -> IND    R D0,P2
+                        IND<=SIGMA;
+                        indirect<=1;
+                        indirectSeg<=SEG_ZERO;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h1a1;
+                    end
+//1a1 A CD    IJ  MNOP RS         OPR   -> tmpb      1   DEC2  tmpc                      
+                9'h1A1:
+                    begin
+                        // OPR -> tmpb  DEC2 tmpc
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            tmpb<=OPRr; // IP component
+                            selectShifter<=0;
+                            aluAselect<=2'b10;     // ALUA = tmpc
+                            aluWord<=1'b1;
+                            operation<=ALU_OP_DEC2;   // DEC2
+                            executionState<=9'h1a2;
+                        end
+                    end
+//1a2  BCD FG I  LM     STU       SP    -> tmpc      6   R     D0,P0                     
+                9'h1A2:
+                    begin
+                        // SP -> tmpc    R D0,P0
+                        tmpc<=SP;
+                        IND<=IND+2;
+                        indirect<=1;
+                        indirectSeg<=SEG_ZERO;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h1a3;
+                    end
+//1a3   CD    IJ L  OPQR TU       OPR   -> tmpa      4   none  SUSP                      
+                9'h1A3:
+                    begin
+                        // OPR -> tmpa   SUSP
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            tmpa<=OPRr; // CS component
+                            suspend<=1;
+                            executionState<=9'h1a4;
+                        end
+                    end
+//1a4  BC   GHIJ L    QRSTU       F     -> OPR       4   CITF  none        100000000.11  
+                9'h1A4:
+                    begin
+                        // F->OPR   CITF
+                        OPRw<=FLAGS;
+                        FLAGS[FLAG_I_IDX]<=0;
+                        FLAGS[FLAG_T_IDX]<=0;
+                        executionState<=9'h1a5;
+                    end
+//1a5 A C  F  I  LM O  R TU       SIGMA -> IND       6   w     DS,P0                     
+                9'h1A5:
+                    begin
+                        IND<=SIGMA;
+                        indirect<=1;
+                        indirectSeg<=SEG_SS;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=1;
+                        executionState<=9'h1a6;
+                    end
+//1a6  BCD   HI  L N    S U       IND   -> tmpc      5   UNC   FARCALL2                  
+                9'h1A6:
+                    begin
+                        // IND->tmpc   FARCALL2
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            tmpc<=IND;
+                            executionState<=9'h06c;
+                        end
                     end
 
 //1d4   CD FGH J L  OPQRSTU       HL    -> tmpa                            101000000.00  [BX+SI]
@@ -1894,7 +2222,7 @@ begin
                 9'h1E4:
                     begin
                         // ZERO -> RD    SUSP
-                        OPRw<=0;
+                        UpdateReg<=0;
                         latchDS<=1;
                         suspend<=1;
                         executionState<=9'h1E5;
@@ -1903,7 +2231,7 @@ begin
                 9'h1E5:
                     begin
                         // ONES -> RC 
-                        OPRw<={16{1'b1}};
+                        UpdateReg<={16{1'b1}};
                         latchCS<=1;
                         executionState<=9'h1E6;
                     end
@@ -1911,7 +2239,7 @@ begin
                 9'h1E6:
                     begin
                         // ZERO -> PC    FLUSH
-                        OPRw<=0;
+                        UpdateReg<=0;
                         latchPC<=1;
                         flush<=1;
                         executionState<=9'h1E7;
@@ -1927,7 +2255,7 @@ begin
                 9'h1E8:
                     begin
                         // ZERO -> RA
-                        OPRw<=0;
+                        UpdateReg<=0;
                         latchES<=1;
                         latchSS<=1; // RESET 1 early for testing purposes
                         executionState<=9'h1E9;
@@ -1936,7 +2264,7 @@ begin
                 9'h1E9:
                     begin
                         // ZERO -> RS   RNI
-                        OPRw<=0;
+                        UpdateReg<=0;
                         //latchSS<=1;
                         executionState<=9'h1FD;     // RNI
                     end
@@ -2076,20 +2404,36 @@ begin
                     begin
                         executionState<=9'h1FD; // RNI
                     end
-                    
+
+//1fb (NOT REAL mOP) - Used for HLT
+                9'h1FB:
+                    begin
+                        if (irqPending & FLAGS[FLAG_I_IDX]) // TODO other interrupt sources
+                            executionState<=9'h1fd; // RNI
+                    end
+
 //1fd (NOT REAL mOP)
                 // RNI
-                default:        // 3'h1FD - Waiting for instruction state
+                default:        // 9'h1FD - Waiting for instruction state
                     begin
 
                         if ((prefetchEmpty|indirectBusOpInProgress|TRACE_MODE)==0)
                         begin
+
                             repeatF<=0;
                             modrm<=8'hFF;
                             segPrefix<=SEG_DS;
-                            instruction<=prefetchTop;
-                            FetchExecStateFromInstruction(prefetchTop);
-                            readTop<=1;
+                            if (irqPending & FLAGS[FLAG_I_IDX])
+                            begin
+                                // don't consume prefetch, instead interrupt
+                                executionState<=9'h19A;
+                            end
+                            else
+                            begin
+                                instruction<=prefetchTop;
+                                FetchExecStateFromInstruction(prefetchTop);
+                                readTop<=1;
+                            end
                         end
 
                     end

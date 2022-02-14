@@ -31,6 +31,7 @@ trace.vcd: ./obj_dir/V$(MODULE)
 	@echo
 	@echo "### VERILATING ###"
 	verilator --Wno-UNOPTFLAT --Wno-WIDTH --Wno-IMPLICIT --trace -cc $(MODULE).v --exe tb_$(MODULE).cpp
+#	verilator -Wall --trace -cc $(MODULE).v --exe tb_$(MODULE).cpp
 	@touch .stamp.verilate
 
 .PHONY:lint

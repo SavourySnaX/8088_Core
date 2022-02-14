@@ -10,7 +10,7 @@
 #define TINY_ROM 0
 #define VIDEO_BOOTSTRAP 0
 #define TEST_P88 1
-#define P88_FILEPATH "/home/snax/ROMS/KONIX_LINE_TEST.P88"
+#define P88_FILEPATH "/home/snax/ROMS/KONIX_SCROLLING_DEMO.P88"
 
 #define CLK_DIVISOR 8
 
@@ -708,91 +708,107 @@ int ValidateFlagSet(const char* testData, int counter, int testCnt, int regInitV
     return (tb->top->eu->FLAGS & regInitVal)==regInitVal;
 }
 
-int ComputeEffectiveAddressMOD00(int rm,int dispL, int dispH)
+void ComputeEffectiveAddressMOD00(int rm,int dispL, int dispH, int* seg, int* off)
 {
-    int addressBase = FetchInitialSR(segOverride)*16; // TODO override
+    *seg = FetchInitialSR(segOverride);
     switch (rm)
     {
         case 0:
-            return addressBase + (RegisterNumInitialWord(ERegisterNum::BX)+RegisterNumInitialWord(ERegisterNum::SI));
+            *off = (RegisterNumInitialWord(ERegisterNum::BX)+RegisterNumInitialWord(ERegisterNum::SI));
+            return;
         case 1:
-            return addressBase + (RegisterNumInitialWord(ERegisterNum::BX)+RegisterNumInitialWord(ERegisterNum::DI));
+            *off = (RegisterNumInitialWord(ERegisterNum::BX)+RegisterNumInitialWord(ERegisterNum::DI));
+            return;
         case 2:
-            return addressBase + (RegisterNumInitialWord(ERegisterNum::BP)+RegisterNumInitialWord(ERegisterNum::SI));
+            *off = (RegisterNumInitialWord(ERegisterNum::BP)+RegisterNumInitialWord(ERegisterNum::SI));
+            return;
         case 3:
-            return addressBase + (RegisterNumInitialWord(ERegisterNum::BP)+RegisterNumInitialWord(ERegisterNum::DI));
+            *off = (RegisterNumInitialWord(ERegisterNum::BP)+RegisterNumInitialWord(ERegisterNum::DI));
+            return;
         case 4:
-            return addressBase + (RegisterNumInitialWord(ERegisterNum::SI));
+            *off = (RegisterNumInitialWord(ERegisterNum::SI));
+            return;
         case 5:
-            return addressBase + (RegisterNumInitialWord(ERegisterNum::DI));
+            *off = (RegisterNumInitialWord(ERegisterNum::DI));
+            return;
         case 6:
-            return addressBase + ((dispH<<8)|dispL);
+            *off = ((dispH<<8)|dispL);
+            return;
         case 7:
-            return addressBase + (RegisterNumInitialWord(ERegisterNum::BX));
+            *off = (RegisterNumInitialWord(ERegisterNum::BX));
+            return;
+    }
+    *off = 0xFFFFFFFF;
+    *seg = 0xFFFFFFFF;
+}
+
+int ComputeEffectiveAddressMODoffs(int rm,int imm)
+{
+    switch (rm)
+    {
+        case 0:
+            return ((RegisterNumInitialWord(ERegisterNum::BX)+RegisterNumInitialWord(ERegisterNum::SI)+imm)&0xFFFF);
+        case 1:
+            return ((RegisterNumInitialWord(ERegisterNum::BX)+RegisterNumInitialWord(ERegisterNum::DI)+imm)&0xFFFF);
+        case 2:
+            return ((RegisterNumInitialWord(ERegisterNum::BP)+RegisterNumInitialWord(ERegisterNum::SI)+imm)&0xFFFF);
+        case 3:
+            return ((RegisterNumInitialWord(ERegisterNum::BP)+RegisterNumInitialWord(ERegisterNum::DI)+imm)&0xFFFF);
+        case 4:
+            return ((RegisterNumInitialWord(ERegisterNum::SI)+imm)&0xFFFF);
+        case 5:
+            return ((RegisterNumInitialWord(ERegisterNum::DI)+imm)&0xFFFF);
+        case 6:
+            return ((RegisterNumInitialWord(ERegisterNum::BP)+imm)&0xFFFF);
+        case 7:
+            return ((RegisterNumInitialWord(ERegisterNum::BX)+imm)&0xFFFF);
     }
     return 0xFFFFFFFF;
 }
 
-int ComputeEffectiveAddressMODoffs(int rm,int offs, int addressBase)
+void ComputeEffectiveAddressMOD01(int rm,int dispL, int dispH, int* seg, int* off)
 {
-    switch (rm)
-    {
-        case 0:
-            return addressBase + ((RegisterNumInitialWord(ERegisterNum::BX)+RegisterNumInitialWord(ERegisterNum::SI)+offs)&0xFFFF);
-        case 1:
-            return addressBase + ((RegisterNumInitialWord(ERegisterNum::BX)+RegisterNumInitialWord(ERegisterNum::DI)+offs)&0xFFFF);
-        case 2:
-            return addressBase + ((RegisterNumInitialWord(ERegisterNum::BP)+RegisterNumInitialWord(ERegisterNum::SI)+offs)&0xFFFF);
-        case 3:
-            return addressBase + ((RegisterNumInitialWord(ERegisterNum::BP)+RegisterNumInitialWord(ERegisterNum::DI)+offs)&0xFFFF);
-        case 4:
-            return addressBase + ((RegisterNumInitialWord(ERegisterNum::SI)+offs)&0xFFFF);
-        case 5:
-            return addressBase + ((RegisterNumInitialWord(ERegisterNum::DI)+offs)&0xFFFF);
-        case 6:
-            return addressBase + ((RegisterNumInitialWord(ERegisterNum::BP)+offs)&0xFFFF);
-        case 7:
-            return addressBase + ((RegisterNumInitialWord(ERegisterNum::BX)+offs)&0xFFFF);
-    }
-    return 0xFFFFFFFF;
+    *seg = FetchInitialSR(segOverride);
+    int imm=SignExt8Bit(dispL);
+    *off = ComputeEffectiveAddressMODoffs(rm,imm);
 }
 
-int ComputeEffectiveAddressMOD01(int rm,int dispL, int dispH)
+void ComputeEffectiveAddressMOD10(int rm,int dispL, int dispH, int* seg, int* off)
 {
-    int addressBase = FetchInitialSR(segOverride)*16; // TODO override
-    int offs=SignExt8Bit(dispL);
-    return ComputeEffectiveAddressMODoffs(rm,offs,addressBase);
+    *seg = FetchInitialSR(segOverride);
+    int imm =((dispH<<8)|dispL)&0xFFFF;
+    *off = ComputeEffectiveAddressMODoffs(rm,imm);
 }
 
-int ComputeEffectiveAddressMOD10(int rm,int dispL, int dispH)
-{
-    int addressBase = FetchInitialSR(segOverride)*16; // TODO override
-    int offs =((dispH<<8)|dispL)&0xFFFF;
-    return ComputeEffectiveAddressMODoffs(rm,offs,addressBase);
-}
-
-int ComputeEffectiveAddress(int mod,int rm,int dispL, int dispH)
+void ComputeEffectiveAddress(int mod,int rm,int dispL, int dispH, int* seg,int* off)
 {
     if (mod==0)
     {
-        return ComputeEffectiveAddressMOD00(rm, dispL, dispH)&0xFFFFF;
+        ComputeEffectiveAddressMOD00(rm, dispL, dispH, seg, off);
+        return;
     }
     if (mod==1)
     {
-        return ComputeEffectiveAddressMOD01(rm, dispL, dispH)&0xFFFFF;
+        ComputeEffectiveAddressMOD01(rm, dispL, dispH, seg, off);
+        return;
     }
     if (mod==2)
     {
-        return ComputeEffectiveAddressMOD10(rm, dispL, dispH)&0xFFFFF;
+        ComputeEffectiveAddressMOD10(rm, dispL, dispH, seg, off);
+        return;
     }
-    return 0xFFFFFFFF;
+    *seg=0xFFFFFFFF;
+    *off=0xFFFFFFFF;
 }
 
-int FetchWrittenMemory(int word, int address)
+int FetchWrittenMemory(int word, int seg, int offset)
 {
-    if (address != readWriteLatchedAddress[captureIdx])
+    int firstAddress=(seg*16 + (offset&0xFFFF))&0xFFFFF;
+    int secondAddress=(seg*16 + ((offset+1)&0xFFFF))&0xFFFFF;
+
+    if (firstAddress != readWriteLatchedAddress[captureIdx])
     {
-        printf("Failed - First Address Mismatch : %05X!=%05X", address, readWriteLatchedAddress[captureIdx]);
+        printf("Failed - First Address Mismatch : %05X!=%05X", firstAddress, readWriteLatchedAddress[captureIdx]);
         return -1;
     }
     if (readWriteLatchedType[captureIdx]!=1)
@@ -802,9 +818,9 @@ int FetchWrittenMemory(int word, int address)
     }
     if (word)
     {
-        if (address+1 != readWriteLatchedAddress[captureIdx+1])
+        if (secondAddress != readWriteLatchedAddress[captureIdx+1])
         {
-            printf("Failed - Second Address Mismatch : %05X!=%05X", address+1, readWriteLatchedAddress[captureIdx+1]);
+            printf("Failed - Second Address Mismatch : %05X!=%05X", secondAddress, readWriteLatchedAddress[captureIdx+1]);
             return -1;
         }
         if (readWriteLatchedType[captureIdx+1]!=1)
@@ -825,15 +841,19 @@ int FetchWrittenMemory(int word, int address)
 
 int FetchDestValueMemory(int word, int mod, int rm, int dispL, int dispH)
 {
-    int address=ComputeEffectiveAddress(mod,rm,dispL,dispH);
-    return FetchWrittenMemory(word, address);
+    int seg,off;
+    ComputeEffectiveAddress(mod,rm,dispL,dispH, &seg, &off);
+    return FetchWrittenMemory(word, seg, off);
 }
 
-int FetchReadMemory(int word, int address)
+int FetchReadMemory(int word, int seg, int offset)
 {
-    if (address != readWriteLatchedAddress[captureIdx])
+    int firstAddress=(seg*16 + (offset&0xFFFF))&0xFFFFF;
+    int secondAddress=(seg*16 + ((offset+1)&0xFFFF))&0xFFFFF;
+
+    if (firstAddress != readWriteLatchedAddress[captureIdx])
     {
-        printf("Failed - First Address Mismatch : %05X!=%05X", address, readWriteLatchedAddress[captureIdx]);
+        printf("Failed - First Address Mismatch : %05X!=%05X", firstAddress, readWriteLatchedAddress[captureIdx]);
         return -1;
     }
     if (readWriteLatchedType[captureIdx]!=1)
@@ -843,9 +863,9 @@ int FetchReadMemory(int word, int address)
     }
     if (word)
     {
-        if (address+1 != readWriteLatchedAddress[captureIdx+1])
+        if (secondAddress != readWriteLatchedAddress[captureIdx+1])
         {
-            printf("Failed - Second Address Mismatch : %05X!=%05X", address+1, readWriteLatchedAddress[captureIdx+1]);
+            printf("Failed - Second Address Mismatch : %05X!=%05X", secondAddress, readWriteLatchedAddress[captureIdx+1]);
             return -1;
         }
         if (readWriteLatchedType[captureIdx+1]!=1)
@@ -866,8 +886,9 @@ int FetchReadMemory(int word, int address)
 
 int FetchSourceValueMemory(int word, int mod, int rm, int dispL, int dispH)
 {
-    int address=ComputeEffectiveAddress(mod,rm,dispL,dispH);
-    return FetchReadMemory(word,address);
+    int seg,off;
+    ComputeEffectiveAddress(mod,rm,dispL,dispH, &seg, &off);
+    return FetchReadMemory(word,seg,off);
 }
 
 
@@ -2023,7 +2044,7 @@ int ValidateSTOS(const char* testData, int counter, int testCnt, int regInitVal)
     if (word)
         store=RegisterNumInitialWord(ERegisterNum::AX);
 
-    int hValue = FetchWrittenMemory(word,(seg*16 + off)&0xFFFFF);
+    int hValue = FetchWrittenMemory(word,seg,off);
 
     int hSeg = tb->top->biu->REGISTER_ES;
     if (seg != hSeg)
@@ -2075,7 +2096,7 @@ int ValidateSTOSREP(const char* testData, int counter, int testCnt, int regInitV
     int hValue=0;
     for (int a=0;a<regInitVal;a++)
     {
-        hValue = FetchWrittenMemory(word,(seg*16 + off)&0xFFFFF);
+        hValue = FetchWrittenMemory(word,seg,off);
         if (word)
             off+=2;
         else
@@ -2107,7 +2128,7 @@ int ValidateLODS(const char* testData, int counter, int testCnt, int regInitVal)
     if (word)
         hValue=FetchWordRegister(ERegisterNum::AX);
 
-    int load = FetchReadMemory(word,(seg*16 + off)&0xFFFFF);
+    int load = FetchReadMemory(word,seg,off);
 
     int hSeg = FetchSR(segOverride);
     if (seg != hSeg)
@@ -2159,7 +2180,7 @@ int ValidateLODSREP(const char* testData, int counter, int testCnt, int regInitV
     int load=0;
     for (int a=0;a<regInitVal;a++)
     {
-        load = FetchReadMemory(word,(seg*16 + off)&0xFFFFF);
+        load = FetchReadMemory(word,seg,off);
         if (word)
             off+=2;
         else
@@ -2193,8 +2214,8 @@ int ValidateMOVS(const char* testData, int counter, int testCnt, int regInitVal)
     int segDst = FetchInitialSR(ESRReg::ES);
     int offDst = RegisterNumInitialWord(ERegisterNum::DI);
     
-    int load = FetchReadMemory(word,(segSrc*16 + offSrc)&0xFFFFF);
-    int store= FetchWrittenMemory(word,(segDst*16 + offDst)&0xFFFFF);
+    int load = FetchReadMemory(word,segSrc,offSrc);
+    int store= FetchWrittenMemory(word,segDst,offDst);
 
     int hSegSrc = FetchSR(segOverride);
     if (segSrc != hSegSrc)
@@ -2273,8 +2294,8 @@ int ValidateMOVSREP(const char* testData, int counter, int testCnt, int regInitV
     }
     for (int a=0;a<regInitVal;a++)
     {
-        int load = FetchReadMemory(word,(segSrc*16 + offSrc)&0xFFFFF);
-        int store= FetchWrittenMemory(word,(segDst*16 + offDst)&0xFFFFF);
+        int load = FetchReadMemory(word,segSrc,offSrc);
+        int store= FetchWrittenMemory(word,segDst,offDst);
 
         if (load != store)
         {
