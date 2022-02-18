@@ -38,7 +38,7 @@ module alu
 
 //Generate adder (allows us to extract multiple carries)
 
-wire [16:0] carry;
+reg [16:0] carry;
 wire [15:0] Ai,Bi,resultAdder;
 
 wire [3:0] OperationL;

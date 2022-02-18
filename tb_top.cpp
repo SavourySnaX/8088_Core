@@ -6,15 +6,18 @@
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 
-#define UNIT_TEST 0
+#define UNIT_TEST 1
 #define TINY_ROM 0
 #define VIDEO_BOOTSTRAP 0
-#define TEST_P88 1
-#define P88_FILEPATH "/home/snax/ROMS/KONIX_SCROLLING_DEMO.P88"
+#define TEST_P88 0
+#define P88_FILEPATH "/home/snax/ROMS/KONIX_ATTACK_OF_THE_MUTANT_CAMELS_V0_4_FIXED.P88"
 
 #define CLK_DIVISOR 8
 
-#define NO_TRACE    (1 && UNIT_TEST) | (!UNIT_TEST)
+#define SHOW_WRITES 0
+#define SHOW_READS 0
+
+#define NO_TRACE    (0 && UNIT_TEST) | (!UNIT_TEST)
 
 #define TICK_LIMIT  0 && 300000
 
@@ -55,6 +58,19 @@ enum ESRReg
     CS=1,
     SS=2,
     DS=3
+};
+
+enum Flags
+{
+    FLAG_C=1<<0,
+    FLAG_P=1<<2,    
+    FLAG_A=1<<4,
+    FLAG_Z=1<<6,
+    FLAG_S=1<<7,
+    FLAG_T=1<<8,
+    FLAG_I=1<<9,
+    FLAG_D=1<<10,
+    FLAG_O=1<<11
 };
 
 
@@ -329,28 +345,25 @@ int FetchInitialSR(int reg)
     }
 }
 
+int initialRegisters[8];
+
+void ResetRegisterNumInitial()
+{
+    initialRegisters[0]=0x0981;
+    initialRegisters[1]=0x1658;
+    initialRegisters[2]=0x2323;
+    initialRegisters[3]=0x3124;
+    initialRegisters[4]=0x4450;
+    initialRegisters[5]=0x5782;
+    initialRegisters[6]=0x6665;
+    initialRegisters[7]=0x7776;
+}
+
+
 int RegisterNumInitial(int regNum)
 {
-    switch (regNum)
-    {
-        case 0:
-            return 0x0981;
-        case 1:
-            return 0x1658;
-        case 2:
-            return 0x2323;
-        case 3:
-            return 0x3124;
-        case 4:
-            return 0x4450;
-        case 5:
-            return 0x5782;
-        case 6:
-            return 0x6665;
-        case 7:
-            return 0x7776;
-    }
-
+    if (regNum>=0 && regNum<8)
+        return initialRegisters[regNum];
     return 0xFFFFFFFF;
 }
 
@@ -369,6 +382,7 @@ int RegisterNumInitialByte(int regNum)
 
 void RegisterNum(int regInitVal)
 {
+    ResetRegisterNumInitial();
     tb->top->eu->FLAGS=0;
     tb->top->eu->AX=RegisterNumInitial(0);
     tb->top->eu->CX=RegisterNumInitial(1);
@@ -387,6 +401,13 @@ void RegisterNumCX(int regInitVal)
 {
     RegisterNum(regInitVal);
     tb->top->eu->CX=regInitVal;
+    initialRegisters[ERegisterNum::CX]=regInitVal;
+}
+
+void RegisterNumCXCarry(int regInitVal)
+{
+    RegisterNumCX(regInitVal);
+    tb->top->eu->FLAGS=FLAG_C;
 }
 
 void RegisterNumFlags(int regInitVal)
@@ -424,19 +445,6 @@ int ValidateMovRImmediateWord(const char* testData, int counter, int testCnt, in
     //printf("ImmediateH : %02X\n", immediateValueH);
     return WordRegisterCheck(registerNumber,(immediateValueH<<8)|immediateValueL);
 }
-
-enum Flags
-{
-    FLAG_C=1<<0,
-    FLAG_P=1<<2,    
-    FLAG_A=1<<4,
-    FLAG_Z=1<<6,
-    FLAG_S=1<<7,
-    FLAG_T=1<<8,
-    FLAG_I=1<<9,
-    FLAG_D=1<<10,
-    FLAG_O=1<<11
-};
 
 int EvenParity(int x)
 {
@@ -910,6 +918,19 @@ int FetchDestValue(int direction,int word, int mod, int reg, int rm, int dispL, 
     return FetchDestValueMemory(word,mod,bits,dispL,dispH);
 }
 
+int FetchModRMLength(int direction, int word, int mod, int reg, int rm)
+{
+    if (direction == 0)
+        mod=3;
+
+    if (mod==1)
+        return 2;
+    if (mod==2)
+        return 3;
+    if (mod==0 && rm==6)
+        return 3;
+    return 1;
+}
 
 int FetchSourceValue(int direction,int word, int mod, int reg, int rm, int dispL, int dispH)
 {
@@ -1992,8 +2013,6 @@ int CheckShifterOp(int word, int aluOp, int carryIn, int A, int result)
     return 0;
 }
 
-
-
 int ValidateAluAImmediate(const char* testData, int counter, int testCnt, int regInitVal)
 {
     int word = Extract(testData,'W',counter,testCnt);
@@ -2433,12 +2452,896 @@ int ValidateNegRM(const char* testData, int counter, int testCnt, int regInitVal
     return CheckSubResultB(0,opAValue,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,hValue);
 }
 
+int JccTaken(int cond, int regInitVal)
+{
+    switch (cond)
+    {
+        case 0x0:   // JO
+            return (regInitVal&FLAG_O);
+        case 0x1:   // JNO
+            return !(regInitVal&FLAG_O);
+        case 0x2:   // JC
+            return (regInitVal&FLAG_C);
+        case 0x3:   // JAE
+            return !(regInitVal&FLAG_C);
+        case 0x4:   // JE
+            return (regInitVal&FLAG_Z);
+        case 0x5:   // JNE
+            return !(regInitVal&FLAG_Z);
+        case 0x6:   // JBE
+            return (regInitVal&FLAG_Z) || (regInitVal&FLAG_C);
+        case 0x7:   // JA
+            return !((regInitVal&FLAG_Z) || (regInitVal&FLAG_C));
+        case 0x8:   // JS
+            return (regInitVal&FLAG_S);
+        case 0x9:   // JNS
+            return !(regInitVal&FLAG_S);
+        case 0xA:   // JP
+            return (regInitVal&FLAG_P);
+        case 0xB:   // JPO
+            return !(regInitVal&FLAG_P);
+        case 0xC:   // JL
+            return ((regInitVal&FLAG_S)==FLAG_S) != ((regInitVal&FLAG_O)==FLAG_O);
+        case 0xD:   // JGE
+            return ((regInitVal&FLAG_S)==FLAG_S) == ((regInitVal&FLAG_O)==FLAG_O);
+        case 0xE:   // JLE
+            return (((regInitVal&FLAG_S)==FLAG_S) != ((regInitVal&FLAG_O)==FLAG_O)) || (regInitVal&FLAG_Z);
+        case 0xF:   // JG
+            return !((((regInitVal&FLAG_S)==FLAG_S) != ((regInitVal&FLAG_O)==FLAG_O)) || (regInitVal&FLAG_Z));
+    }
+    return -1;
+}
+
+int ValidateJcc(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int immediateValueL = SignExt8Bit(Extract(testData,'l', counter, testCnt));
+    int cond = Extract(testData, 'C', counter, testCnt);
+    int ip = tb->top->biu->REGISTER_IP;
+
+    if (JccTaken(cond, regInitVal))
+        return (ip) == ((0x0002 + immediateValueL)&0xFFFF);
+    return (ip == 0x0002);
+}
+
+int ValidateCallCW(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int immediateValueL = Extract(testData,'L', counter, testCnt);
+    int immediateValueH = Extract(testData,'H', counter, testCnt);
+    
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    int expectedip = ((0x0003 + ((immediateValueH<<8)|immediateValueL)) & 0xFFFF);
+    
+    int stackValue = FetchWrittenMemory(1,ss, sp);
+
+    // 3 should be on stack
+    if (3 != stackValue)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", 3, stackValue);
+        return 0;
+    }
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 less
+    if (sp!=isp-2)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp-2, sp);
+        return 0;
+    }
+
+    if (ip != expectedip)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", expectedip, ip);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidateCallRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int instructionLength = 1 + FetchModRMLength(1,1,mod,99,RM);
+
+    int opAValue = FetchSourceValue(1,1,mod,99,RM,dispL,dispH);
+
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchWrittenMemory(1,ss, sp);
+
+    if (instructionLength != stackValue)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", instructionLength, stackValue);
+        return 0;
+    }
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 less
+    if (sp!=isp-2)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp-2, sp);
+        return 0;
+    }
+
+    if (ip != opAValue)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", opAValue, ip);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidatePushSR(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int r = Extract(testData,'r', counter, testCnt);
+    
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sr = FetchSR(r);
+    int sp = tb->top->eu->SP;
+
+    int isr = FetchInitialSR(r);
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchWrittenMemory(1,ss, sp);
+
+    // sr should be on stack
+    if (isr != stackValue)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", isr, stackValue);
+        return 0;
+    }
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 less
+    if (sp!=isp-2)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp-2, sp);
+        return 0;
+    }
+
+    if (sr != isr)
+    {
+        printf("Segment Register Mismatch %04X != %04X\n", isr, sr);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidatePushRW(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int r = Extract(testData,'r', counter, testCnt);
+    
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sr = FetchWordRegister(r);
+    int sp = tb->top->eu->SP;
+
+    int isr = RegisterNumInitialWord(r);
+
+    if (r == 4)
+        isr=isr-2;  // Push SP pushes SP decremented already.
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchWrittenMemory(1,ss, sp);
+
+    // sr should be on stack
+    if (isr != stackValue)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", isr, stackValue);
+        return 0;
+    }
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 less
+    if (sp!=isp-2)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp-2, sp);
+        return 0;
+    }
+
+    if (sr != isr)
+    {
+        printf("Register Mismatch %04X != %04X\n", isr, sr);
+        return 0;
+    }
+
+    return 1;
+}
+
+
+int CheckTestResultW(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "test %w1, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckTestResultB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "test %b1, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "1" (b)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int ValidateTestRMImmediate(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = regInitVal;
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+    int immL = Extract(testData,'L',counter,testCnt);
+    int immH = Extract(testData,'H',counter,testCnt);
+
+    if (word==0)
+    {
+        immH = 0;
+    }
+
+    int opAValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+    int opBValue = (immH<<8)|immL;
+
+    int hValue = opAValue;
+    
+    if (word==1)
+        return CheckTestResultW(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);          // don't validate U flags
+    return CheckTestResultB(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);              // don't validate U flags
+}
+
+int ValidateTestAImmediate(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int immL = Extract(testData,'L', counter, testCnt);
+    int immH = Extract(testData,'H', counter, testCnt);
+
+    int opAValue = RegisterNumInitial(ERegisterNum::AX);
+    int opBValue = (immH<<8)|immL;
+
+    int hValue = opAValue;
+    if (word==1)
+        return CheckTestResultW(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);          // don't validate U flags
+    return CheckTestResultB(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);              // don't validate U flags
+}
+
+int CheckShlClResultW(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "shl %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "shl %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckShlClResultB(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "shl %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "shl %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckShrClResultW(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "shr %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "shr %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckShrClResultB(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "shr %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "shr %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckSarClResultW(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "sar %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "sar %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckSarClResultB(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "sar %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "sar %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckRorClResultW(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "ror %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "ror %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckRorClResultB(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "ror %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "ror %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckRolClResultW(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "rol %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "rol %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckRolClResultB(int a,int cl, int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "rol %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "rol %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckRclClResultW(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "rcl %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "rcl %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckRclClResultB(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "rcl %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "rcl %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+int CheckRcrClResultW(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "rcr %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "rcr %b3, %w0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckRcrClResultB(int a,int cl,int carryIn, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    if (carryIn)
+    {
+    __asm__ volatile (
+        "stc\n"
+        "rcr %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+    else
+    {
+    __asm__ volatile (
+        "clc\n"
+        "rcr %b3, %b0\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=q" (ret), "=q" (res)
+        : "0" (a), "cJ" (cl)
+        );
+    }
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
+}
+
+int CheckShifterOpCl(int word, int aluOp, int cl, int carryIn, int A, int result)
+{
+    int res;
+    int checkO = cl==1 ? FLAG_O : 0;
+    int checkSF = cl==0 ? 0 : FLAG_S|FLAG_Z|FLAG_P;// don't validate U flags
+    int checkF = cl==0? 0 : FLAG_C;
+    if (word)
+    {
+        switch (aluOp)
+        {
+            case 0:
+                return CheckRolClResultW(A,cl,carryIn,checkO|checkF,result);     // Only O & C for rotates
+            case 1:
+                return CheckRorClResultW(A,cl,carryIn,checkO|checkF,result);     // Only O & C for rotates
+            case 2:
+                return CheckRclClResultW(A,cl,carryIn,checkO|checkF,result);     // Only O & C for rotates
+            case 3:
+                return CheckRcrClResultW(A,cl,carryIn,checkO|checkF,result);     // Only O & C for rotates
+            case 4:
+            case 6:
+                return CheckShlClResultW(A,cl,carryIn,checkO|checkSF|checkF,result);
+            case 5:
+                return CheckShrClResultW(A,cl,carryIn,checkO|checkSF|checkF,result);
+            case 7:
+                return CheckSarClResultW(A,cl,carryIn,checkO|checkSF|checkF,result);
+            default:
+                break;
+        }
+    }
+    else
+    {
+        switch (aluOp)
+        {
+            case 0:
+                return CheckRolClResultB(A,cl,carryIn,checkO|checkF,result);     // Only O & C for rotates
+            case 1:
+                return CheckRorClResultB(A,cl,carryIn,checkO|checkF,result);     // Only O & C for rotates
+            case 2:
+                return CheckRclClResultB(A,cl,carryIn,checkO|checkF,result);     // Only O & C for rotates
+            case 3:
+                return CheckRcrClResultB(A,cl,carryIn,checkO|checkF,result);     // Only O & C for rotates
+            case 4:
+            case 6:
+                return CheckShlClResultB(A,cl,carryIn,checkO|checkSF|checkF,result);     
+            case 5:
+                return CheckShrClResultB(A,cl,carryIn,checkO|checkSF|checkF,result);
+            case 7:
+                return CheckSarClResultB(A,cl,carryIn,checkO|checkSF|checkF,result);
+            default:
+                break;
+        }
+    }
+    return 0;
+}
+
+int ValidateShiftRMclNoCarry(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int shiftOp = Extract(testData,'S',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+
+    int hValue = FetchDestValue(0,word,mod,99,RM,dispL,dispH);
+
+    return CheckShifterOpCl(word, shiftOp, regInitVal, 0, opAValue, hValue);
+}
+
+int ValidateShiftRMclCarry(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int shiftOp = Extract(testData,'S',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+
+    int hValue = FetchDestValue(0,word,mod,99,RM,dispL,dispH);
+    
+    return CheckShifterOpCl(word, shiftOp, regInitVal, 1, opAValue, hValue);
+}
 
 
 #define TEST_MULT 4
 
 const char* testArray[]={ 
-#if 1
+#if 0
     "10110RRR LLLLLLLL ",                                       (const char*)ValidateMovRImmediateByte,         (const char*)DefaultTestInit,   (const char*)0x0000,      // mov r,i (byte)
     "10111RRR LLLLLLLL HHHHHHHH ",                              (const char*)ValidateMovRImmediateWord,         (const char*)DefaultTestInit,   (const char*)0x0000,      // mov r,i (word)
     "01000RRR ",                                                (const char*)ValidateIncWordRegister,           (const char*)DefaultTestInit,   (const char*)0x0000,      // inc r (word)
@@ -2490,8 +3393,33 @@ const char* testArray[]={
     "1101000W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRM,                   (const char*)RegisterNumFlags,  (const char*)0,           // rot rm,1 (C clear)
     "1101000W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRM,                   (const char*)RegisterNumFlags,  (const char*)(FLAG_C),    // rot rm,1 (C set)
     "1111011W MM011mmm llllllll hhhhhhhh ",                     (const char*)ValidateNegRM,                     (const char*)RegisterNum,       (const char*)0,           // neg rm
+    "11111101 ",                                                (const char*)ValidateFlagSet,                   (const char*)ClearFlags,        (const char*)(FLAG_D),    // std
+    "0111CCCC llllllll ",                                       (const char*)ValidateJcc,                       (const char*)RegisterNumFlags,  (const char*)0,                                         // jcond (flags clear)
+    "0111CCCC llllllll ",                                       (const char*)ValidateJcc,                       (const char*)RegisterNumFlags,  (const char*)(FLAG_O|FLAG_C|FLAG_S|FLAG_P|FLAG_Z),      // jcond (flags set)
+    "0111CCCC llllllll ",                                       (const char*)ValidateJcc,                       (const char*)RegisterNumFlags,  (const char*)(FLAG_C|FLAG_Z),                           // jcond (flags set)
+    "0111CCCC llllllll ",                                       (const char*)ValidateJcc,                       (const char*)RegisterNumFlags,  (const char*)(FLAG_O|FLAG_Z),                           // jcond (flags set)
+    "0111CCCC llllllll ",                                       (const char*)ValidateJcc,                       (const char*)RegisterNumFlags,  (const char*)(FLAG_C|FLAG_O),                           // jcond (flags set)
+    "0111CCCC llllllll ",                                       (const char*)ValidateJcc,                       (const char*)RegisterNumFlags,  (const char*)(FLAG_S|FLAG_O),                           // jcond (flags set)
+    "0111CCCC llllllll ",                                       (const char*)ValidateJcc,                       (const char*)RegisterNumFlags,  (const char*)(FLAG_S|FLAG_Z),                           // jcond (flags set)
+    "11101000 LLLLLLLL HHHHHHHH ",                              (const char*)ValidateCallCW,                    (const char*)RegisterNum,       (const char*)0,           // call cw
+    "11111111 MM010mmm llllllll hhhhhhhh ",                     (const char*)ValidateCallRM,                    (const char*)RegisterNum,       (const char*)0,           // call rm
+    "1111011W 11000mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateTestRMImmediate,           (const char*)RegisterNum,       (const char*)0x0003,      // TEST rm,i (reg)
+    "1111011W 10000mmm llllllll hhhhhhhh LLLLLLLL HHHHHHHH ",   (const char*)ValidateTestRMImmediate,           (const char*)RegisterNum,       (const char*)0x0002,      // TEST rm,i (mem)
+    "1010100W LLLLLLLL HHHHHHHH ",                              (const char*)ValidateTestAImmediate,            (const char*)RegisterNumFlags,  (const char*)(0),         // TEST A,i
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)0,           // rot rm,cl (cl=0) (no initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)0,           // rot rm,cl (cl=0) (initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=1) (no initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=1) (initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=2) (no initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=2) (initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=8) (no initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=8) (initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=16) (no initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=16) (initial carry)
+    "000rr110 ",                                                (const char*)ValidatePushSR,                    (const char*)RegisterNum,       (const char*)0,           // push sr
 #endif
-    // TODO ADD TESTS FOR Jcond, CALL cb, PUSH sr, POP sr, RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], TEST rm,i, PUSH rw, POP rw
+    "01010rrr ",                                                (const char*)ValidatePushRW,                    (const char*)RegisterNum,       (const char*)0,           // push rw
+    // TODO ADD TESTS FOR POP sr, RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], POP rw, PUSHF, POPF, IMUL rm (needs implementing properly), CBW
     0
 };
 
@@ -2717,7 +3645,7 @@ void SimulateInterface(Vtop *tb)
             readWriteLatchedType[captureIdx]=tb->IOM;
             lastReadCapture[captureIdx++]=tb->inAD;
 
-#if 0
+#if SHOW_READS
             if (tb->IOM==1)
                 printf("Reading from RAM : %08X -> %02X\n", latchedAddress, tb->inAD);
             else
@@ -2733,7 +3661,7 @@ void SimulateInterface(Vtop *tb)
             readWriteLatchedAddress[captureIdx]=latchedAddress&0xFFFFF;
             readWriteLatchedType[captureIdx]=tb->IOM;
             lastWriteCapture[captureIdx++]=tb->outAD;
- #if 0
+ #if SHOW_WRITES
             if (tb->IOM==1)
                 printf("\nWrite To Ram : %08X <- %02X\n",latchedAddress,tb->outAD);
             else
@@ -2876,7 +3804,8 @@ int HandleExecuteSection(FILE* inFile)
 		exit(1);
 	}
 
-    offset+=0;  // HACK
+    //offset+=0x2d0e;  // HACK IMUL loc
+    offset+=0x11d;
 
     // Create lJMP in RESET address
     ROM[0xFFFF0&(ROMSIZE-1)]=0xEA;
@@ -2931,7 +3860,7 @@ unsigned char PeekByte(unsigned int address)
 
 #include "disasm.c"
 
-int startDebuggingAddress = 0x801AA;
+int startDebuggingAddress = 0x7007D;
 int showDebugger=1;
 
 #define RAND_IO_SIZE 16
@@ -2975,9 +3904,12 @@ void SimulateInterface(Vtop *tb)
     lastRead=tb->RD_n;
 }
 
+int tickLimit=-1;
 
 int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
 {
+    if (tickLimit!=-1 && ticks>tickLimit)
+        return 1;
     if (TICK_LIMIT)
     {
         if (ticks>TICK_LIMIT)
@@ -3047,8 +3979,19 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                     printf("%s\n",GetOutputBuffer());
                     int v=getchar();
                     printf("%d\n",v);
-                    if (v!=10)
-                        return 1;
+                    if (v=='f')
+                    {
+                        tb->top->eu->AX=0x80;
+                        tb->top->eu->CX=5;
+                        tickLimit=ticks+2000;
+                        getchar();// consume CR
+                        return 0;
+                    }
+                    else
+                    {
+                        if (v!=10)
+                            return 1;
+                    }
                 }
                 
                 tb->top->eu->TRACE_MODE=0;
