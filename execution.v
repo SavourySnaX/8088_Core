@@ -71,6 +71,7 @@ reg [3:0] operation;
 reg [15:0] tmpa;
 reg [15:0] tmpb;
 reg [15:0] tmpc;
+reg [3:0] icnt;
 reg selectShifter;
 wire [15:0] SIGMA,sigmaALU,sigmaShifter;
 
@@ -130,6 +131,7 @@ parameter SEG_SS = 3'b010;
 
 
 parameter ALU_OP_PASS = 4'b0000;
+parameter ALU_OP_NOT =  4'b0001;
 parameter ALU_OP_INC =  4'b0010;
 parameter ALU_OP_DEC =  4'b0011;
 parameter ALU_OP_INC2 = 4'b0100;
@@ -147,8 +149,8 @@ parameter ALU_OP_CMP = 4'b1111;
 
 parameter SHIFTER_OP_ROL = 3'b000;
 parameter SHIFTER_OP_ROR = 3'b001;
-parameter SHIFTER_OP_RCL = 3'b010;
-parameter SHIFTER_OP_RRL = 3'b011;
+parameter SHIFTER_OP_RLC = 3'b010;
+parameter SHIFTER_OP_RRC = 3'b011;
 parameter SHIFTER_OP_SHL = 3'b100;
 parameter SHIFTER_OP_SHR = 3'b101;
 parameter SHIFTER_OP_SAR = 3'b111;
@@ -175,9 +177,10 @@ assign Cond_G  =(FLAGS[FLAG_S_IDX] == FLAGS[FLAG_O_IDX]) & (~FLAGS[FLAG_Z_IDX]);
 
 reg [8:0] PostEffectiveAddressReturn;   // EA calculation finsh jumps to here
 
+reg carryIn;
 // alu
-alu myalu(.CLKx4(CLKx4), .A(aluA),.B(aluB),.Operation(operation),.byteWord(aluWord),.carryIn(FLAGS[FLAG_C_IDX]),.S(sigmaALU),.F_Overflow(fo), .F_Neg(fs), .F_Zero(fz), .F_Aux(fa), .F_Parity(fp), .F_Carry(fc));
-shifter myshifter(.CLKx4(CLKx4), .A(aluA),.Operation(operation[2:0]),.byteWord(aluWord),.carryIn(FLAGS[FLAG_C_IDX]),.S(sigmaShifter),.F_Overflow(sho), .F_Neg(shs), .F_Zero(shz), .F_Aux(sha), .F_Parity(shp), .F_Carry(shc));
+alu myalu(.CLKx4(CLKx4), .A(aluA),.B(aluB),.Operation(operation),.byteWord(aluWord),.carryIn(carryIn),.S(sigmaALU),.F_Overflow(fo), .F_Neg(fs), .F_Zero(fz), .F_Aux(fa), .F_Parity(fp), .F_Carry(fc));
+shifter myshifter(.CLKx4(CLKx4), .A(aluA),.Operation(operation[2:0]),.byteWord(aluWord),.carryIn(carryIn),.S(sigmaShifter),.F_Overflow(sho), .F_Neg(shs), .F_Zero(shz), .F_Aux(sha), .F_Parity(shp), .F_Carry(shc));
 
 assign SIGMA=selectShifter? sigmaShifter : sigmaALU;
 
@@ -187,7 +190,8 @@ assign aluA = (tmpa & {16{aluAselect==2'b00}}) |
 
 assign aluB = (tmpa & {16{aluBselect==2'b00}}) |
               (tmpb & {16{aluBselect==2'b01}}) |
-              (tmpc & {16{aluBselect==2'b10}});
+              (tmpc & {16{aluBselect==2'b10}}) |
+              ({16{carryIn}} & {16{aluBselect==2'b11}});
 
 task automatic FetchExecStateFromInstruction(input [7:0] inst);
 begin
@@ -389,14 +393,14 @@ begin
     begin
         // AL|CL|DL|BL|AH|CH|DH|BH
         case (regNum)
-            3'b000:     ReadFromRegister={8'h00,AX[7:0]};
-            3'b001:     ReadFromRegister={8'h00,CX[7:0]};
-            3'b010:     ReadFromRegister={8'h00,DX[7:0]};
-            3'b011:     ReadFromRegister={8'h00,BX[7:0]};
-            3'b100:     ReadFromRegister={8'h00,AX[15:8]};
-            3'b101:     ReadFromRegister={8'h00,CX[15:8]};
-            3'b110:     ReadFromRegister={8'h00,DX[15:8]};
-            3'b111:     ReadFromRegister={8'h00,BX[15:8]};
+            3'b000:     ReadFromRegister={{8{AX[7]}},AX[7:0]};
+            3'b001:     ReadFromRegister={{8{CX[7]}},CX[7:0]};
+            3'b010:     ReadFromRegister={{8{DX[7]}},DX[7:0]};
+            3'b011:     ReadFromRegister={{8{BX[7]}},BX[7:0]};
+            3'b100:     ReadFromRegister={{8{AX[15]}},AX[15:8]};
+            3'b101:     ReadFromRegister={{8{CX[15]}},CX[15:8]};
+            3'b110:     ReadFromRegister={{8{DX[15]}},DX[15:8]};
+            3'b111:     ReadFromRegister={{8{BX[15]}},BX[15:8]};
         endcase
     end
 end
@@ -2204,7 +2208,7 @@ begin
                             // Adjusted IND value here - probably via BIU originally, for now, just do adjustment directly
                             DI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
                             
-                            if (!repeatF)
+                            if (~repeatF)
                                 executionState<= 9'h115;    // ?? unclear exact dest, this seems ok though
                             else
                                 executionState<=9'h11f;
@@ -2274,7 +2278,7 @@ begin
                             // Adjusted IND value here - probably via BIU originally, for now, just do adjustment directly
                             DI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
                             
-                            if (!repeatF)
+                            if (~repeatF)
                                 executionState<= 9'h133;
                             else
                                 executionState<=9'h131;
@@ -2337,20 +2341,169 @@ begin
 //150  BCD  G     M O Q S         A     -> tmpc      1   LRCY  tmpc        01111010?.00   iMUL rmb
                 9'h150:
                     begin
+                        // A->tmpc  LRCY tmpc
+                        tmpc<={{8{AX[7]}},AX[7:0]};
 
-                        //  HACK HACK HACK
-                        AX<=(AX&16'h00FF)*(CX&16'h00FF);
-
-                        executionState<=9'h1fd; //RNI
+                        selectShifter<=1;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=instruction[0];
+                        operation<=SHIFTER_OP_RLC;
+                        executionState<=9'h151;
                     end
 //151 A CD F   J LMN PQ S         M     -> tmpb      7   X0    PREIMUL                   
-//152 ABC  F HI  LMN     T                           7   UNC   CORX                      
-//153 ABC  F HI  LMNO Q S U                          7   F1    NEGATE                    
-//154 ABC  F HI  LMN PQ ST                           7   X0    IMULCOF     01111010?.01  
-//155    D  G IJ   N PQ STU       tmpc  -> A         0   X0       7                      
-//156 ABC  F HI  LMN    STU                          7   UNC   MULCOF                    
-//157     E G I  L  OPQR          tmpa  -> X         4   none  RNI  
+                9'h151:
+                    begin
+                        // M->tmpb  X0 PREIMUL
+                        code_M={instruction[0],modrm[2:0]};
+                        code_M2TmpB=1;
 
+                        if (modrm[3]==1'b1)
+                        begin
+                            executionState<=9'h1c0;  // PREIMUL
+                            PostEffectiveAddressReturn<=9'h152;
+                        end
+                        else
+                            executionState<=9'h152;
+                    end
+//152 ABC  F HI  LMN     T                           7   UNC   CORX                      
+                9'h152:
+                    begin
+                        // UNC CORX
+                        PostEffectiveAddressReturn<=9'h153;
+                        executionState<=9'h17f;
+                    end
+//153 ABC  F HI  LMNO Q S U                          7   F1    NEGATE                    
+                9'h153:
+                    begin
+                        // F1 NEGATE
+                        if (repeatF)
+                        begin
+                            executionState<=9'h1b6;
+                            PostEffectiveAddressReturn<=9'h154;
+                        end
+                        else
+                            executionState<=9'h154;
+                    end
+//154 ABC  F HI  LMN PQ ST                           7   X0    IMULCOF     01111010?.01  
+                9'h154:
+                    begin
+                        // X0 IMULCOF
+                        if (modrm[3]==1'b1)
+                        begin
+                            executionState<=9'h1cd;  // IMULCOF
+                            PostEffectiveAddressReturn<=9'h155;
+                        end
+                        else
+                            executionState<=9'h155;
+
+                    end
+//155    D  G IJ   N PQ STU       tmpc  -> A         0   X0       7                      
+                9'h155:
+                    begin
+                        // tmpc->A   X0 7 (157)
+                        AX[7:0]<=tmpc[7:0];
+                        if (modrm[3]==1'b1)
+                            executionState<=9'h157;
+                        else
+                            executionState<=9'h156;
+                    end
+//156 ABC  F HI  LMN    STU                          7   UNC   MULCOF                    
+                9'h156:
+                    begin
+                        // UNC MULCOF
+                        PostEffectiveAddressReturn<=9'h157;
+                        executionState<=9'h1d2;
+                    end
+//157     E G I  L  OPQR          tmpa  -> X         4   none  RNI  
+                9'h157:
+                    begin
+                        // tmpa->X RNI
+                        AX[15:8]<=tmpa[7:0];
+                        executionState<=9'h1fd; // RNI
+                    end
+
+//158  BCD FG     M O Q S         XA    -> tmpc      1   LRCY  tmpc        11111010?.00   iMUL rmw
+                9'h158:
+                    begin
+                        // XA->tmpc  LRCY tmpc
+                        tmpc<=AX;
+
+                        selectShifter<=1;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=instruction[0];
+                        operation<=SHIFTER_OP_RLC;
+                        executionState<=9'h159;
+                    end
+//159 A CD F   J LMN PQ S         M     -> tmpb      7   X0    PREIMUL                   
+                9'h159:
+                    begin
+                        // M->tmpb  X0 PREIMUL
+                        code_M={instruction[0],modrm[2:0]};
+                        code_M2TmpB=1;
+
+                        if (modrm[3]==1'b1)
+                        begin
+                            executionState<=9'h1c0;  // PREIMUL
+                            PostEffectiveAddressReturn<=9'h15a;
+                        end
+                        else
+                            executionState<=9'h15a;
+                    end
+//15a ABC  F HI  LMN     T                           7   UNC   CORX                      
+                9'h15A:
+                    begin
+                        // UNC CORX
+                        PostEffectiveAddressReturn<=9'h15b;
+                        executionState<=9'h17f;
+                    end
+//15b ABC  F HI  LMNO Q S U                          7   F1    NEGATE                    
+                9'h15B:
+                    begin
+                        // F1 NEGATE
+                        if (repeatF)
+                        begin
+                            executionState<=9'h1b6;
+                            PostEffectiveAddressReturn<=9'h15c;
+                        end
+                        else
+                            executionState<=9'h15c;
+                    end
+//15c ABC  F HI  LMN PQ ST                           7   X0    IMULCOF     11111010?.01  
+                9'h15C:
+                    begin
+                        // X0 IMULCOF
+                        if (modrm[3]==1'b1)
+                        begin
+                            executionState<=9'h1cd;  // IMULCOF
+                            PostEffectiveAddressReturn<=9'h15d;
+                        end
+                        else
+                            executionState<=9'h15d;
+                    end
+//15d    DE G IJ   N PQ STU       tmpc  -> XA        0   X0       7                      
+                9'h15D:
+                    begin
+                        // tmpc->XA   X0 7 (157)
+                        AX<=tmpc;
+                        if (modrm[3]==1'b1)
+                            executionState<=9'h15f;
+                        else
+                            executionState<=9'h15e;
+                    end
+//15e ABC  F HI  LMN    STU                          7   UNC   MULCOF                    
+                9'h15E:
+                    begin
+                        // UNC MULCOF
+                        PostEffectiveAddressReturn<=9'h15f;
+                        executionState<=9'h1d2;
+                    end
+//15f  B DE G I  L  OPQR          tmpa  -> DE        4   none  RNI              
+                9'h15F:
+                    begin
+                        // tmpa->DE RNI
+                        DX<=tmpa;
+                        executionState<=9'h1fd; // RNI
+                    end
 
 //17c A CD F   J  MN   R TU       M     -> tmpb      1   XI    tmpb, NX    00100????.00  INC/DEC
                 9'h17C:
@@ -2378,6 +2531,117 @@ begin
 
                         executionState<=9'h1FD; // RNI
                     end
+
+//17f   CD F HIJ  M O QRS         ZERO  -> tmpa      1   RRCY  tmpc                      CORX
+                9'h17F:
+                    begin
+                        // ZERO->tmpa  RRCY tmpc
+                        tmpa<=0;
+                        selectShifter<=1;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=instruction[0];
+                        operation<=SHIFTER_OP_RRC;
+                        executionState<=9'h180;
+                    end 
+//180  BCD F  I  L      STU       SIGMA -> tmpc      4   MAXC  none        00100????.01  
+                9'h180:
+                    begin
+                        // SIGMA->tmpc  MAXC
+                        tmpc<=SIGMA;
+                        carryIn<=shc;
+                        if (instruction[0])
+                            icnt<=15;
+                        else
+                            icnt<=7;
+                        executionState<=9'h181;
+                    end
+//181 ABC  F HI    NO  R                             0   NCY      8 (184)                     
+                9'h181:
+                    begin
+                        // NCY 8
+                        if (carryIn==0)
+                            executionState<=9'h184;
+                        else
+                            executionState<=9'h182;
+                    end
+//182 ABC  F HI   M                                  1   ADD   tmpa                      
+                9'h182:
+                    begin
+                        // ADD tmpa,tmpb
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord<=instruction[0];
+                        operation<=ALU_OP_ADD;
+                        executionState<=9'h183;
+                    end
+//183   CD F  I KL  OPQRSTU       SIGMA -> tmpa                         F                
+                9'h183:
+                    begin
+                        // SIGMA->tmpa  F
+                        tmpa<=SIGMA;
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+                        carryIn<=fc;
+                        executionState<=9'h184;
+                    end
+//184 ABC  F HI   M O QR                             1   RRCY  tmpa        00100????.10  
+                9'h184:
+                    begin
+                        // RRCY tmpa
+                        selectShifter<=1;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluWord<=instruction[0];
+                        operation<=SHIFTER_OP_RRC;
+                        executionState<=9'h185;
+                    end
+//185   CD F  I   M O QRS         SIGMA -> tmpa      1   RRCY  tmpc                      
+                9'h185:
+                    begin
+                        // SIGMA->tmpa  RRCY tmpc
+                        tmpa<=SIGMA;
+                        carryIn<=shc;
+                        selectShifter<=1;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=instruction[0];
+                        operation<=SHIFTER_OP_RRC;
+                        executionState<=9'h186;
+                    end
+//186  BCD F  I     O   S U       SIGMA -> tmpc      0   NCZ      5 (181)                     
+                9'h186:
+                    begin
+                        // SIGMA->tmpc  NCZ 181
+                        tmpc<=SIGMA;
+                        carryIn<=shc;
+                        icnt<=icnt-1;
+                        if (icnt!=0)
+                            executionState<=9'h181;
+                        else
+                            executionState<=9'h187;
+                    end
+//187 ABC  F HI  L  OPQRS                            4   none  RTN   
+                9'h187:
+                    begin
+                        // RTN
+                        executionState<=PostEffectiveAddressReturn;
+                    end
+
+//188 ABC  F HI   M  P R                             1   SUBT  tmpa        100100010.00  CORD
+//189 ABC  F  I KL      STU       SIGMA -> no dest   4   MAXC  none     F                
+//18a ABC  F HI  L NO   STU                          5   NCY   INT0                      
+//18b ABC  F HI   M O Q S                            1   LRCY  tmpc                      
+//18c  BCD F  I   M O Q           SIGMA -> tmpc      1   LRCY  tmpa        100100010.01  
+//18d   CD F  I   M  P R          SIGMA -> tmpa      1   SUBT  tmpa                      
+//18e ABC  F HI     OPQRS U                          0   CY      13                      
+//18f ABC  F  I KL  OPQRSTU       SIGMA -> no dest                      F                
+//190 ABC  F HI    NO  RST                           0   NCY     14        100100010.10  
+//191 ABC  F HI     O    TU                          0   NCZ      3                      
+//192 ABC  F HI   M O Q S                            1   LRCY  tmpc                      
+//193  BCD F  I  L  OPQRSTU       SIGMA -> tmpc                                          
+//194 ABC  F  I  L  OPQRS         SIGMA -> no dest   4   none  RTN         100100010.11  
+//195 ABC  F HI  L   P  STU                          4   RCY   none                      
+//196   CD F  I     O    TU       SIGMA -> tmpa      0   NCZ      3                      
+//197 ABC  F HI    N   R T                           0   UNC     10                      
 
 //19a  BCD FG    LM  P  STU       XA    -> tmpc      6   IRQ   D0,P0                     IRQ 
                 9'h19A:
@@ -2517,6 +2781,211 @@ begin
                             tmpc<=IND;
                             executionState<=9'h06c;
                         end
+                    end
+
+//1b6 ABC  F HI   MNO QRS                            1   NEG   tmpc                      NEGATE
+                9'h1B6:
+                    begin
+                        // NEG tmpc
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=instruction[0];
+                        operation<=ALU_OP_NEG;
+                        executionState<=9'h1b7;
+                    end
+//1b7  BCD F  I K MNO Q           SIGMA -> tmpc      1   COM1  tmpa     F                
+                9'h1B7:
+                    begin
+                        // SIGMA -> tmpc  COM1 tmpa  F
+                        tmpc<=SIGMA;
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+                        carryIn<=fc;
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluWord<=instruction[0];
+                        operation<=ALU_OP_NOT;
+                        executionState<=9'h1b8;
+                    end
+//1b8 ABC  F HI     OPQ ST                           0   CY       6        100100011.01  
+                9'h1B8:
+                    begin
+                        // CY 6
+                        if (carryIn)
+                            executionState<=9'h1ba;
+                        else
+                            executionState<=9'h1b9;
+                    end
+//1b9 ABC  F HI   MNO QR                             1   NEG   tmpa                      
+                9'h1B9:
+                    begin
+                        // NEG tmpa
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluWord<=instruction[0];
+                        operation<=ALU_OP_NEG;
+                        executionState<=9'h1ba;
+                    end
+//1ba   CD F  I  L    Q STU       SIGMA -> tmpa      4   CF1   none                      
+                9'h1BA:
+                    begin
+                        // SIGMA->tmpa  CF1
+                        tmpa<=SIGMA;
+                        repeatF<=~repeatF;
+                        executionState<=9'h1bb;
+                    end
+//1bb ABC  F HI   M O Q  T                           1   LRCY  tmpb                      
+                9'h1BB:
+                    begin
+                        // LRCY tmpb
+                        selectShifter<=1;
+                        aluAselect<=2'b01;     // ALUA = tmpb
+                        aluWord<=instruction[0];
+                        operation<=SHIFTER_OP_RLC;
+                        executionState<=9'h1bc;
+                    end
+//1bc ABC  F  I   MNO QR T        SIGMA -> no dest   1   NEG   tmpb        100100011.10  
+                9'h1BC:
+                    begin
+                        // SIGMA->no dest   NEG tmpb
+                        selectShifter<=0;
+                        aluAselect<=2'b01;     // ALUA = tmpb
+                        aluWord<=1'b1;//instruction[0];
+                        operation<=ALU_OP_NEG;
+                        executionState<=9'h1bd;
+                    end
+//1bd ABC  F HI    NO  R TU                          0   NCY     11                      
+                9'h1BD:
+                    begin
+                        // NCY 11
+                        if (fs==1)
+                            executionState<=9'h1bf;
+                        else
+                            executionState<=9'h1be;
+                    end
+//1be A CD F  I  L    Q S         SIGMA -> tmpb      4   CF1   RTN 
+                9'h1BE:
+                    begin
+                        // SIGMA->tmpb
+                        tmpb<=SIGMA;
+                        repeatF<=~repeatF;
+                        executionState<=PostEffectiveAddressReturn;
+                    end
+//1bf ABC  F HI  L  OPQRS                            4   none  RTN
+                9'h1BF:
+                    begin
+                        // RTN
+                        executionState<=PostEffectiveAddressReturn;
+                    end
+//1c0 ABC  F  I   MNO QRS         SIGMA -> no dest   1   NEG   tmpc        100100011.11  PREIMUL
+                9'h1C0:
+                    begin
+                        // SIGMA->no dest   NEG tmpc
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=1'b1;//instruction[0];
+                        operation<=ALU_OP_NEG;
+                        executionState<=9'h1c1;
+                    end
+//1c1 ABC  F HI    NO   STU                          0   NCY      7                      
+                9'h1C1:
+                    begin
+                        // NCY 7
+                        if (fs==1)
+                            executionState<=9'h1bc;
+                        else
+                            executionState<=9'h1c2;
+                    end
+//1c2  BCD F  I  L    Q STU       SIGMA -> tmpc      4   CF1   none                      
+                9'h1C2:
+                    begin
+                        // SIGMA->tmpc  CF1
+                        tmpc<=SIGMA;
+                        repeatF<=~repeatF;
+                        executionState<=9'h1c3;
+                    end
+//1c3 ABC  F HI    N    STU                          0   UNC      7                      
+                9'h1C3:
+                    begin
+                        // UNC 7
+                        executionState<=9'h1bc;
+                    end
+
+//1c5 ABC  F HI   M O Q  T                           1   LRCY  tmpb                      
+//1c6 ABC  F  I   MNO QR          SIGMA -> no dest   1   NEG   tmpa                      
+//1c7 ABC  F HI    NO   S U                          0   NCY      5                      
+
+//1cc ABC  F HI  L   PQ S                            4   CCOF  RTN         100100100.10  
+                9'h1CC:
+                    begin
+                        // CCOF RTN
+                        FLAGS[FLAG_C_IDX]<=0;
+                        FLAGS[FLAG_O_IDX]<=0;
+                        executionState<=PostEffectiveAddressReturn; // RTN
+                    end
+//1cd A CD F HIJ  M O Q S         ZERO  -> tmpb      1   LRCY  tmpc                      IMULCOF
+                9'h1CD:
+                    begin
+                        // ZERO->tmpb LRCY tmpc
+                        tmpb<=0;
+                        selectShifter<=1;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=instruction[0];
+                        operation<=SHIFTER_OP_RLC;
+                        executionState<=9'h1ce;
+                    end
+//1ce ABC  F  I   M   Q           SIGMA -> no dest   1   XZC   tmpa                      
+                9'h1CE:
+                    begin
+                        // SIGMA -> no dest  XZC tmpa
+                        carryIn<=shc;   // 
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluBselect<=2'b11;     // ALUB = carryIn
+                        aluWord<=instruction[0];
+                        operation<=ALU_OP_XOR;
+                        executionState<=9'h1cf;
+                    end
+//1cf ABC  F  I KL  OPQRSTU       SIGMA -> no dest                      F                
+                9'h1CF:
+                    begin
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+                        executionState<=9'h1d0;
+                    end
+//1d0 ABC  F HI      PQR                             0   Z        8        100100100.11  
+                9'h1D0:
+                    begin
+                        // Z 8
+                        if (FLAGS[FLAG_Z_IDX])
+                            executionState<=9'h1cc;
+                        else
+                            executionState<=9'h1d1;
+                    end
+//1d1 ABC  F HI  L   PQRS                            4   SCOF  RTN                      
+                9'h1D1:
+                    begin
+                        // SCOF RTN
+                        FLAGS[FLAG_C_IDX]<=1;
+                        FLAGS[FLAG_O_IDX]<=1;
+                        executionState<=PostEffectiveAddressReturn; // RTN
+                    end
+
+//1d2 ABC  F HI   MN                                 1   PASS  tmpa                      MULCOF
+                9'h1D2:
+                    begin
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluWord<=instruction[0];
+                        operation<=ALU_OP_PASS;   // PASS A
+                        executionState<=9'h1d3;
+                    end
+//1d3 ABC  F  I K  N   RS         SIGMA -> no dest   0   UNC     12     F      
+                9'h1D3:
+                    begin
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+                        executionState<=9'h1d0;
                     end
 
 //1d4   CD FGH J L  OPQRSTU       HL    -> tmpa                            101000000.00  [BX+SI]
@@ -2781,7 +3250,7 @@ begin
                         end
                     end
 
-//1f4 (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. TEST,NEG)
+//1f4 (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. TEST,NEG,MUL)
                 9'h1F4:
                     begin
                         // Q -> MODRM
@@ -2794,8 +3263,10 @@ begin
                                 4'b1000: executionState<=9'h098;
                                 4'b0011: begin readModifyWrite=1; executionState<=9'h1f6; PostEffectiveAddressReturn<=9'h050; end
                                 4'b1011: executionState<=9'h050;
-                                4'b0101: begin readModifyWrite=1; executionState<=9'h1f6; PostEffectiveAddressReturn<=9'h150; end
-                                4'b1101: executionState<=9'h150;
+                                4'b0100: begin readModifyWrite=1; executionState<=9'h1f6; if (instruction[0]) PostEffectiveAddressReturn<=9'h158; else PostEffectiveAddressReturn<=9'h150; end
+                                4'b1100: if (instruction[0]) executionState<=9'h158; else executionState<=9'h150;
+                                4'b0101: begin readModifyWrite=1; executionState<=9'h1f6; if (instruction[0]) PostEffectiveAddressReturn<=9'h158; else PostEffectiveAddressReturn<=9'h150; end
+                                4'b1101: if (instruction[0]) executionState<=9'h158; else executionState<=9'h150;
                                 default: begin end
                             endcase
                         end
@@ -2903,6 +3374,7 @@ begin
                             repeatF<=0;
                             modrm<=8'hFF;
                             segPrefix<=SEG_DS;
+                            carryIn<=FLAGS[FLAG_C_IDX];
                             if (irqPending & FLAGS[FLAG_I_IDX])
                             begin
                                 // don't consume prefetch, instead interrupt

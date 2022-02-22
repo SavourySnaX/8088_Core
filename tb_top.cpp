@@ -5,8 +5,11 @@
 #include "Vtop_bus_interface.h"
 #include "verilated.h"
 #include "verilated_vcd_c.h"
+#include "testing_x86.h"
 
+#define ARITH_TESTS 0
 #define UNIT_TEST 1
+#define ALL_TESTS 0
 #define TINY_ROM 0
 #define VIDEO_BOOTSTRAP 0
 #define TEST_P88 0
@@ -17,7 +20,7 @@
 #define SHOW_WRITES 0
 #define SHOW_READS 0
 
-#define NO_TRACE    (0 && UNIT_TEST) | (!UNIT_TEST)
+#define NO_TRACE    ((ALL_TESTS | ARITH_TESTS) && UNIT_TEST) | (!UNIT_TEST)
 
 #define TICK_LIMIT  0 && 300000
 
@@ -27,6 +30,82 @@ int ck=0;
 uint32_t latchedAddress;
 int lastWrite=1,lastRead=1;
 Vtop *tb;
+
+#if UNIT_TEST || ARITH_TESTS
+
+#define RAMSIZE 1024*1024
+unsigned char RAM[RAMSIZE];
+
+// OF|DF|IF|TF|SF|ZF|U |AF|U |PF|U |CF
+
+int TestFlags(int hFlags,int tFlags, int flagMask)
+{
+    if (flagMask & FLAG_Z)
+    {
+        int isZeroH = (hFlags & FLAG_Z)?1:0;
+        int isZeroT = (tFlags & FLAG_Z)?1:0;
+        if (isZeroT!=isZeroH)
+        {
+            printf("Z flag mismatch %d != %d\n", isZeroH, isZeroT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_S)
+    {
+        int isSignH = (hFlags & FLAG_S)?1:0;
+        int isSignT = (tFlags & FLAG_S)?1:0;
+        if (isSignH!=isSignT)
+        {
+            printf("S flag mismatch %d != %d\n", isSignH, isSignT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_C)
+    {
+        int isCarryH = (hFlags & FLAG_C)?1:0;
+        int isCarryT = (tFlags & FLAG_C)?1:0;
+        if (isCarryH!=isCarryT)
+        {
+            printf("C flag mismatch %d != %d\n", isCarryH, isCarryT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_A)
+    {
+        int isAuxCarryH = (hFlags & FLAG_A)?1:0;
+        int isAuxCarryT = (tFlags & FLAG_A)?1:0;
+        if (isAuxCarryH!=isAuxCarryT)
+        {
+            printf("A flag mismatch %d != %d\n", isAuxCarryH, isAuxCarryT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_O)
+    {
+        int isOverflowH = (hFlags & FLAG_O)?1:0;
+        int isOverflowT = (tFlags & FLAG_O)?1:0;
+        if (isOverflowH!=isOverflowT)
+        {
+            printf("O flag mismatch %d != %d\n", isOverflowH, isOverflowT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_P)
+    {
+        int isParityH = (hFlags & FLAG_P)?1:0;
+        int isParityT = (tFlags & FLAG_P)?1:0;
+        if (isParityH!=isParityT)
+        {
+            printf("P flag mismatch %d != %d\n", isParityH, isParityT);
+            return 0;
+        }
+    }
+
+    return 1;
+
+}
+
+#endif
 
 #if UNIT_TEST       // RUN ON 64BIT X86 since i cheated and use asm for flags
 
@@ -39,40 +118,6 @@ uint32_t readWriteLatchedAddress[MAX_READWRITE_CAPTURE];
 int readWriteLatchedType[MAX_READWRITE_CAPTURE];
 uint8_t  lastWriteCapture[MAX_READWRITE_CAPTURE];
 uint8_t  lastReadCapture[MAX_READWRITE_CAPTURE];
-
-enum ERegisterNum
-{
-    AX = 0,
-    CX = 1,
-    DX = 2,
-    BX = 3,
-    SP = 4,
-    BP = 5,
-    SI = 6,
-    DI = 7,
-};
-
-enum ESRReg
-{
-    ES=0,
-    CS=1,
-    SS=2,
-    DS=3
-};
-
-enum Flags
-{
-    FLAG_C=1<<0,
-    FLAG_P=1<<2,    
-    FLAG_A=1<<4,
-    FLAG_Z=1<<6,
-    FLAG_S=1<<7,
-    FLAG_T=1<<8,
-    FLAG_I=1<<9,
-    FLAG_D=1<<10,
-    FLAG_O=1<<11
-};
-
 
 int NumMatch(const char* testData, char code)
 {
@@ -359,6 +404,17 @@ void ResetRegisterNumInitial()
     initialRegisters[7]=0x7776;
 }
 
+void ResetRegisterNumInitial2()
+{
+    initialRegisters[0]=0x8981;
+    initialRegisters[1]=0x9658;
+    initialRegisters[2]=0xA323;
+    initialRegisters[3]=0xB124;
+    initialRegisters[4]=0xC450;
+    initialRegisters[5]=0xD782;
+    initialRegisters[6]=0xE665;
+    initialRegisters[7]=0xF776;
+}
 
 int RegisterNumInitial(int regNum)
 {
@@ -383,6 +439,23 @@ int RegisterNumInitialByte(int regNum)
 void RegisterNum(int regInitVal)
 {
     ResetRegisterNumInitial();
+    tb->top->eu->FLAGS=0;
+    tb->top->eu->AX=RegisterNumInitial(0);
+    tb->top->eu->CX=RegisterNumInitial(1);
+    tb->top->eu->DX=RegisterNumInitial(2);
+    tb->top->eu->BX=RegisterNumInitial(3);
+    tb->top->eu->SP=RegisterNumInitial(4);
+    tb->top->eu->BP=RegisterNumInitial(5);
+    tb->top->eu->SI=RegisterNumInitial(6);
+    tb->top->eu->DI=RegisterNumInitial(7);
+    tb->top->biu->REGISTER_DS=0x1000;
+    tb->top->biu->REGISTER_ES=0x3000;
+    tb->top->biu->REGISTER_SS=0x5000;
+}
+
+void RegisterNum2(int regInitVal)
+{
+    ResetRegisterNumInitial2();
     tb->top->eu->FLAGS=0;
     tb->top->eu->AX=RegisterNumInitial(0);
     tb->top->eu->CX=RegisterNumInitial(1);
@@ -444,114 +517,6 @@ int ValidateMovRImmediateWord(const char* testData, int counter, int testCnt, in
     //printf("ImmediateL : %02X\n", immediateValueL);
     //printf("ImmediateH : %02X\n", immediateValueH);
     return WordRegisterCheck(registerNumber,(immediateValueH<<8)|immediateValueL);
-}
-
-int EvenParity(int x)
-{
-    x ^=x>>4;
-    x ^=x>>2;
-    x ^=x>>1;
-    return (~x)&1;
-}
-
-// OF|DF|IF|TF|SF|ZF|U |AF|U |PF|U |CF
-
-int TestFlags(int hFlags,int tFlags, int flagMask)
-{
-    if (flagMask & FLAG_Z)
-    {
-        int isZeroH = (hFlags & FLAG_Z)?1:0;
-        int isZeroT = (tFlags & FLAG_Z)?1:0;
-        if (isZeroT!=isZeroH)
-        {
-            printf("Z flag mismatch %d != %d\n", isZeroH, isZeroT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_S)
-    {
-        int isSignH = (hFlags & FLAG_S)?1:0;
-        int isSignT = (tFlags & FLAG_S)?1:0;
-        if (isSignH!=isSignT)
-        {
-            printf("S flag mismatch %d != %d\n", isSignH, isSignT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_C)
-    {
-        int isCarryH = (hFlags & FLAG_C)?1:0;
-        int isCarryT = (tFlags & FLAG_C)?1:0;
-        if (isCarryH!=isCarryT)
-        {
-            printf("C flag mismatch %d != %d\n", isCarryH, isCarryT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_A)
-    {
-        int isAuxCarryH = (hFlags & FLAG_A)?1:0;
-        int isAuxCarryT = (tFlags & FLAG_A)?1:0;
-        if (isAuxCarryH!=isAuxCarryT)
-        {
-            printf("A flag mismatch %d != %d\n", isAuxCarryH, isAuxCarryT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_O)
-    {
-        int isOverflowH = (hFlags & FLAG_O)?1:0;
-        int isOverflowT = (tFlags & FLAG_O)?1:0;
-        if (isOverflowH!=isOverflowT)
-        {
-            printf("O flag mismatch %d != %d\n", isOverflowH, isOverflowT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_P)
-    {
-        int isParityH = (hFlags & FLAG_P)?1:0;
-        int isParityT = (tFlags & FLAG_P)?1:0;
-        if (isParityH!=isParityT)
-        {
-            printf("P flag mismatch %d != %d\n", isParityH, isParityT);
-            return 0;
-        }
-    }
-
-    return 1;
-
-}
-
-//	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(dst,src,7), C AS CARRY(7), P AS PARITYEVEN { (dst + src)+carry }->res;
-int CheckAddFlagsW(int a,int b, int flagMask)
-{
-    unsigned long ret;
-
-    __asm__ volatile (
-        "add %w2, %w0\n"
-        "pushfq\n"
-        "pop %0\n"
-        : "=q" (ret)
-        : "0" (a), "r" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask);
-}
-
-int CheckSubFlagsW(int a,int b, int flagMask)
-{
-    unsigned long ret;
-
-    __asm__ volatile (
-        "sub %w2, %w0\n"
-        "pushfq\n"
-        "pop %0\n"
-        : "=q" (ret)
-        : "0" (a), "r" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask);
 }
 
 int ValidateIncWordRegister(const char* testData, int counter, int testCnt, int regInitVal)
@@ -1062,362 +1027,6 @@ int ValidateMovRMImmediate(const char* testData, int counter, int testCnt, int r
     return hValue==immL;
 }
 
-int CheckAddResultW(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "add %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckAddResultB(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "add %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckOrResultW(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "or %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckOrResultB(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "or %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckAdcResultW(int a,int b, int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "adc %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "adc %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckAdcResultB(int a,int b, int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "adc %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "adc %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckSbbResultW(int a,int b, int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "sbb %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "sbb %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckSbbResultB(int a,int b, int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "sbb %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "sbb %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckAndResultW(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "and %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckAndResultB(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "and %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckSubResultW(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "sub %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckSubResultB(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "sub %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckXorResultW(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "xor %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckXorResultB(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "xor %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckCmpResultW(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "cmp %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckCmpResultB(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "cmp %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
 int CheckALUOp(int word, int aluOp, int carryIn, int A, int B, int result)
 {
     int res;
@@ -1470,495 +1079,6 @@ int CheckALUOp(int word, int aluOp, int carryIn, int A, int B, int result)
         }
     }
     return 0;
-}
-
-int CheckShlResultW(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "shl $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "shl $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckShlResultB(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "shl $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "shl $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckShrResultW(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "shr $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "shr $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckShrResultB(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "shr $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "shr $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckSarResultW(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "sar $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "sar $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckSarResultB(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "sar $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "sar $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckRorResultW(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "ror $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "ror $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckRorResultB(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "ror $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "ror $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckRolResultW(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rol $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rol $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckRolResultB(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rol $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rol $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckRclResultW(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rcl $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rcl $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckRclResultB(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rcl $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rcl $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-int CheckRcrResultW(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rcr $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rcr $1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckRcrResultB(int a,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rcr $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rcr $1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
 }
 
 int CheckShifterOp(int word, int aluOp, int carryIn, int A, int result)
@@ -2448,8 +1568,8 @@ int ValidateNegRM(const char* testData, int counter, int testCnt, int regInitVal
     int hValue = FetchDestValue(0,word,mod,99,RM,dispL,dispH);
     
     if (word)
-        return CheckSubResultW(0,opAValue,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,hValue);
-    return CheckSubResultB(0,opAValue,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,hValue);
+        return CheckNegResultW(opAValue,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,hValue);
+    return CheckNegResultB(opAValue,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,hValue);
 }
 
 int JccTaken(int cond, int regInitVal)
@@ -2684,43 +1804,6 @@ int ValidatePushRW(const char* testData, int counter, int testCnt, int regInitVa
     return 1;
 }
 
-
-int CheckTestResultW(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "test %w1, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckTestResultB(int a,int b, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    __asm__ volatile (
-        "test %b1, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "1" (b)
-        );
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
 int ValidateTestRMImmediate(const char* testData, int counter, int testCnt, int regInitVal)
 {
     int word = Extract(testData,'W',counter,testCnt);
@@ -2759,495 +1842,6 @@ int ValidateTestAImmediate(const char* testData, int counter, int testCnt, int r
     if (word==1)
         return CheckTestResultW(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);          // don't validate U flags
     return CheckTestResultB(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);              // don't validate U flags
-}
-
-int CheckShlClResultW(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "shl %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "shl %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckShlClResultB(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "shl %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "shl %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckShrClResultW(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "shr %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "shr %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckShrClResultB(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "shr %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "shr %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckSarClResultW(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "sar %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "sar %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckSarClResultB(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "sar %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "sar %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckRorClResultW(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "ror %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "ror %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckRorClResultB(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "ror %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "ror %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckRolClResultW(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rol %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rol %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckRolClResultB(int a,int cl, int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rol %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rol %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-
-int CheckRclClResultW(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rcl %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rcl %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckRclClResultB(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rcl %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rcl %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
-}
-int CheckRcrClResultW(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rcr %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rcr %b3, %w0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
-}
-
-int CheckRcrClResultB(int a,int cl,int carryIn, int flagMask, int expected)
-{
-    unsigned long ret;
-    unsigned long res;
-
-    if (carryIn)
-    {
-    __asm__ volatile (
-        "stc\n"
-        "rcr %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-    else
-    {
-    __asm__ volatile (
-        "clc\n"
-        "rcr %b3, %b0\n"
-        "push %0\n"
-        "pushfq\n"
-        "pop %0\n"
-        "pop %1\n"
-        : "=q" (ret), "=q" (res)
-        : "0" (a), "cJ" (cl)
-        );
-    }
-
-    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFF)==(expected&0xFF));
 }
 
 int CheckShifterOpCl(int word, int aluOp, int cl, int carryIn, int A, int result)
@@ -3337,11 +1931,49 @@ int ValidateShiftRMclCarry(const char* testData, int counter, int testCnt, int r
     return CheckShifterOpCl(word, shiftOp, regInitVal, 1, opAValue, hValue);
 }
 
+int ValidateMulRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+    int opBValue = RegisterNumInitial(ERegisterNum::AX);
+
+    int hValue=FetchWordRegister(ERegisterNum::AX);
+
+    if (word)
+        return CheckMulW(opAValue, opBValue, FLAG_C | FLAG_O, hValue, FetchWordRegister(ERegisterNum::DX));
+    
+    return CheckMulB(opAValue, opBValue, FLAG_C | FLAG_O, hValue); // Don't check Unknown flags
+}
+
+int ValidateIMulRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = 3;//Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+    int opBValue = RegisterNumInitial(ERegisterNum::AX);
+
+    int hValue=FetchWordRegister(ERegisterNum::AX);
+
+    if (word)
+        return CheckIMulW(opAValue, opBValue, FLAG_C | FLAG_O, hValue, FetchWordRegister(ERegisterNum::DX));
+    
+    return CheckIMulB(opAValue, opBValue, FLAG_C | FLAG_O, hValue); // Don't check Unknown flags
+}
+
 
 #define TEST_MULT 4
 
 const char* testArray[]={ 
-#if 0
+#if ALL_TESTS
     "10110RRR LLLLLLLL ",                                       (const char*)ValidateMovRImmediateByte,         (const char*)DefaultTestInit,   (const char*)0x0000,      // mov r,i (byte)
     "10111RRR LLLLLLLL HHHHHHHH ",                              (const char*)ValidateMovRImmediateWord,         (const char*)DefaultTestInit,   (const char*)0x0000,      // mov r,i (word)
     "01000RRR ",                                                (const char*)ValidateIncWordRegister,           (const char*)DefaultTestInit,   (const char*)0x0000,      // inc r (word)
@@ -3417,14 +2049,15 @@ const char* testArray[]={
     "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=16) (no initial carry)
     "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=16) (initial carry)
     "000rr110 ",                                                (const char*)ValidatePushSR,                    (const char*)RegisterNum,       (const char*)0,           // push sr
-#endif
     "01010rrr ",                                                (const char*)ValidatePushRW,                    (const char*)RegisterNum,       (const char*)0,           // push rw
-    // TODO ADD TESTS FOR POP sr, RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], POP rw, PUSHF, POPF, IMUL rm (needs implementing properly), CBW
+    "1111011W MM100mmm llllllll hhhhhhhh ",                     (const char*)ValidateMulRM,                     (const char*)RegisterNum,       (const char*)0,           // mul rm 
+    "1111011W MM100mmm llllllll hhhhhhhh ",                     (const char*)ValidateMulRM,                     (const char*)RegisterNum2,      (const char*)0,           // mul rm
+    "1111011W 11101mmm llllllll hhhhhhhh ",                     (const char*)ValidateIMulRM,                    (const char*)RegisterNum,       (const char*)0,           // imul rm 
+    "1111011W 11101mmm llllllll hhhhhhhh ",                     (const char*)ValidateIMulRM,                    (const char*)RegisterNum2,      (const char*)0,           // imul rm 
+#endif
+    // TODO ADD TESTS FOR POP sr, RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], POP rw, PUSHF, POPF, CBW, LEA r,rm
     0
 };
-
-#define RAMSIZE 1024*1024
-unsigned char RAM[RAMSIZE];
 
 int NumFromTestCode(const char* testData)
 {
@@ -4007,7 +2640,231 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
 
 #endif
 
-#if !UNIT_TEST && !TEST_P88
+#if ARITH_TESTS
+
+#define TEST_MULT 6
+
+// 0 = opA,opB,flags,result
+// 1 = opA,opB,cIn,flags,result
+// 2 = opA, flags, result
+// 3 = opA,opB,flags,result  (but result in AX)
+
+const char* testArray[]={ 
+    // Byte Tests
+#if 0
+    "\x00""\xC1",       (const char*)2,         (const char*)CheckAddResultB,       "add cl,al",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)0,
+    "\x10""\xC1",       (const char*)2,         (const char*)CheckAdcResultB,       "adc cl,al",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)1,
+    "\xF6""\xD9",       (const char*)2,         (const char*)CheckNegResultB,       "neg cl",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
+    "\xF6""\xE1",       (const char*)2,         (const char*)CheckMulB,             "mul cl",       (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
+#endif    
+    "\xF6""\xE9",       (const char*)2,         (const char*)CheckIMulB,            "imul cl",      (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
+
+
+    (const char*)1,     0,                      0,                                  0,              0,                                                              0,// switch to word based
+
+
+    // Word Tests
+#if 0
+    "\xF7""\xD9",       (const char*)2,         (const char*)CheckNegResultW,       "neg cx",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
+#endif
+    0};
+
+int testPos=0;
+int testState=-1;
+int testCntr=0;
+int byteMode=1;
+
+long currentTestCnt;
+long currentTestCounter;
+
+typedef int (*Validate0)(int,int,int,int);
+typedef int (*Validate1)(int,int,int,int,int);
+typedef int (*Validate2)(int,int,int);
+
+int operandA,operandB,cIn;
+
+int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
+{
+    if (testCntr>0)
+    {
+        testCntr--;
+        return 0;
+    }
+
+    if (TICK_LIMIT)
+    {
+        if (ticks>TICK_LIMIT)
+            return 1;
+    }
+
+    switch (testState)
+    {
+        case -1:
+            // Fill RAM with values
+            for (int a=0;a<0xFFFFF;a++)
+            {
+                RAM[a]=((a>>12)&0xF0)|(a&0xF);
+            }
+            testState++;
+            break;
+        case 0:
+            if (testArray[testPos*TEST_MULT]==0)
+            {
+                testState=99;
+            }
+            else
+            {
+                if (testArray[testPos*TEST_MULT]==(const char*)1)
+                {
+                    byteMode=false;
+                    testPos++;
+                    break;
+                }
+
+                testState++;
+                if (byteMode)
+                {
+                    if (testArray[testPos*TEST_MULT+5]==(const char*)2)
+                        currentTestCnt=256;
+                    else
+                        currentTestCnt=65536;
+                    currentTestCounter=0;
+                }
+                else
+                {
+                    if (testArray[testPos*TEST_MULT+5]==(const char*)2)
+                        currentTestCnt=65536;
+                    else
+                        currentTestCnt = 65536l * 65536;
+                    currentTestCounter=0;
+                }
+
+                if (testArray[testPos*TEST_MULT+5]==(const char*)1)
+                    currentTestCnt*=2;  // need an extra bit for carry
+            }
+            break;
+        case 1:
+            {
+                tb->RESET=1;
+                printf("Running test (%s) : %ld / %ld\r",testArray[testPos*TEST_MULT+3],currentTestCounter+1, currentTestCnt);
+                int total = (int)(intptr_t)testArray[testPos*TEST_MULT+1];
+                for (int a=0;a<total;a++)
+                {
+                    RAM[0xFFFF0+a]=testArray[testPos*TEST_MULT+0][a];
+                }
+                testState++;
+                testCntr=16;
+            }
+            break;
+        case 2:
+            tb->RESET=0;
+            if (tb->top->eu->executionState == 0x1FD)   // Instruction Fetch
+            {
+                if (byteMode)
+                {
+                    operandA=currentTestCounter&0xFF;
+                    operandB=(currentTestCounter>>8)&0xFF;
+                    cIn=(currentTestCounter>>16)&1;
+                }
+                else
+                {
+                    operandA=currentTestCounter&0xFFFF;
+                    operandB=(currentTestCounter>>16)&0xFFFF;
+                    cIn=(currentTestCounter>>32)&1;
+                }
+                tb->top->eu->CX=operandA;
+                tb->top->eu->AX=operandB;
+
+                if (testArray[testPos*TEST_MULT+5]==(const char*)1)
+                {
+                    if (cIn)
+                        tb->top->eu->FLAGS|=FLAG_C;
+                }
+
+                testState++;
+            }
+            break;
+        case 3:
+            if (tb->top->eu->executionState != 0x1FD)
+            {
+                testState++;
+                tb->top->eu->TRACE_MODE=1;  // prevent further instruction execution
+            }
+            break;
+        case 4:
+            if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0))
+            {
+                int ok = 0;
+                switch ((int)(intptr_t)testArray[testPos*TEST_MULT+5])
+                {
+                    case 0:
+                        ok = ((Validate0)testArray[testPos*TEST_MULT+2])(operandA,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->CX);
+                        break;
+                    case 1:
+                        ok = ((Validate1)testArray[testPos*TEST_MULT+2])(operandA,operandB,cIn,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->CX);
+                        break;
+                    case 2:
+                        ok = ((Validate2)testArray[testPos*TEST_MULT+2])(operandA,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->CX);
+                        break;
+                    case 3:
+                        ok = ((Validate0)testArray[testPos*TEST_MULT+2])(operandA,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->AX);
+                        break;
+                }
+                if (!ok)
+                {
+                    if (byteMode)
+                        printf("\nERROR %s %02X,%02X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
+                    else
+                        printf("\nERROR %s %04X,%04X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
+                    testState=99;
+                }
+                else
+                {
+                    currentTestCounter++;
+                    if (currentTestCounter==currentTestCnt)
+                    {
+                        printf("\nAll Tests PASSED (%s)\n",testArray[testPos*TEST_MULT+3]);
+                        testPos++;
+
+                        testState=0;
+                    }
+                    else
+                    {
+                        testState=1;
+                    }
+                }
+            }
+            break;
+        case 99:
+            return 1;
+    }
+
+    return 0;
+}
+
+
+// Address FFFF0 - FFFFF encoded instruction
+
+void SimulateInterface(Vtop *tb)
+{
+    if (tb->RESET==1)
+        return;
+    if (tb->ALE)
+    {
+        uint32_t address = tb->A<<8;
+        address|=tb->outAD;
+        latchedAddress=address;
+    }
+    if (tb->RD_n==0)
+    {
+        tb->inAD = RAM[latchedAddress];
+    }
+}
+#endif
+
+
+
+#if !UNIT_TEST && !TEST_P88 && !ARITH_TESTS
 
 #define RAND_IO_SIZE 16
 int IORand[RAND_IO_SIZE]={0x00,0x00,0xFF,0xFF,0x00,0x80,0xFF,0x7F,0x11,0x11,0x22,0x22,0x33,0x33,0x44,0x44};
@@ -4049,7 +2906,7 @@ void SimulateInterface(Vtop *tb)
 
 #endif
 
-#if !UNIT_TEST && !TEST_P88
+#if !UNIT_TEST && !TEST_P88 && !ARITH_TESTS
 int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
 {
     return ticks >= 200000;
@@ -4172,9 +3029,3 @@ int main(int argc, char** argv)
 #endif
 	exit(EXIT_SUCCESS);
 }
-
-
-
-
-
-

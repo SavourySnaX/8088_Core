@@ -24,13 +24,13 @@ trace.vcd: ./obj_dir/V$(MODULE)
 ./obj_dir/V$(MODULE): .stamp.verilate
 	@echo
 	@echo "### BUILDING SIM ###"
-	make -C obj_dir -f V$(MODULE).mk V$(MODULE)
+	make -C obj_dir -f V$(MODULE).mk V$(MODULE) -j32
 #	make CXXFLAGS='-g' -C obj_dir -f V$(MODULE).mk V$(MODULE)
 
 .stamp.verilate: $(MODULE).v tb_$(MODULE).cpp
 	@echo
 	@echo "### VERILATING ###"
-	verilator --Wno-UNOPTFLAT --Wno-WIDTH --Wno-IMPLICIT --trace -cc $(MODULE).v --exe tb_$(MODULE).cpp
+	verilator --Wno-UNOPTFLAT --Wno-WIDTH --Wno-IMPLICIT --trace -cc $(MODULE).v --exe tb_$(MODULE).cpp testing_x86.cpp
 #	verilator -Wall --trace -cc $(MODULE).v --exe tb_$(MODULE).cpp
 	@touch .stamp.verilate
 
