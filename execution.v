@@ -98,6 +98,7 @@ reg [1:0] aluBselect;
 reg aluWord;
 
 reg repeatF,repeatFZ;
+reg delayedI;
 
 wire [15:0] aluA,aluB;
 
@@ -233,6 +234,7 @@ begin
     else if (inst == 8'b11111011)                        // STI (not microcoded)
     begin
         FLAGS[FLAG_I_IDX]<=1;
+        delayedI<=1;
         executionState <= 9'h143;          // RNI
     end
     else if (inst == 8'b11111010)                        // CLI (not microcoded)
@@ -293,7 +295,10 @@ begin
     else if (inst[7:0] == 8'b10011000)                    // CBW
         executionState <= 9'h054;
     else if (inst[7:0] == 8'b11001111)                    // IRET
+    begin
         executionState <= 9'h0c8;
+        delayedI<=1;
+    end
     else if (inst[7:0] == 8'b11110100)                    // HLT
         executionState <= 9'h1fb;
     else if (inst[7:0] == 8'b10011100)                    // PUSHF
@@ -444,6 +449,7 @@ begin
         executionState <= 9'h1E4;   // RESET
         instruction <= 8'h90;
         TRACE_MODE<=0;
+        delayedI<=0;
     end
     else
     begin
@@ -3378,7 +3384,8 @@ begin
                             modrm<=8'hFF;
                             segPrefix<=SEG_DS;
                             carryIn<=FLAGS[FLAG_C_IDX];
-                            if (irqPending & FLAGS[FLAG_I_IDX])
+                            delayedI<=0;    // Clear delay interrupt flag so next instruction will interrupt
+                            if (irqPending & FLAGS[FLAG_I_IDX] & ~delayedI)
                             begin
                                 // don't consume prefetch, instead interrupt
                                 executionState<=9'h19A;
