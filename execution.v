@@ -7,6 +7,7 @@ module execution
     input               RESET,
 
     input [7:0] prefetchTop,
+    input [19:0] prefetchTopLinearAddress,
     input prefetchEmpty, 
     input prefetchFull,
     input indirectBusOpInProgress,
@@ -27,7 +28,7 @@ module execution
 
 
     // BIU control
-    output reg readTop,
+    output reg readTop /* verilator public */,
     output reg suspend,
     output reg correct,
     output reg flush /*verilator public*/,
@@ -176,6 +177,8 @@ assign Cond_LE =(FLAGS[FLAG_S_IDX] != FLAGS[FLAG_O_IDX]) |   FLAGS[FLAG_Z_IDX];
 assign Cond_G  =(FLAGS[FLAG_S_IDX] == FLAGS[FLAG_O_IDX]) & (~FLAGS[FLAG_Z_IDX]);
 
 reg [8:0] PostEffectiveAddressReturn;   // EA calculation finsh jumps to here
+
+reg [19:0] instructionAddress /* verilator public */;
 
 reg carryIn;
 // alu
@@ -3383,6 +3386,7 @@ begin
                             else
                             begin
                                 instruction<=prefetchTop;
+                                instructionAddress<=prefetchTopLinearAddress;
                                 FetchExecStateFromInstruction(prefetchTop);
                                 readTop<=1;
                             end

@@ -57,6 +57,7 @@ module bus_interface
     input ind_byteWord,     // indirect bus byte/word request
 
     output [7:0] prefetchTop,
+    output [19:0] prefetchTopLinearAddress,
     output prefetchEmpty, 
     output prefetchFull /*verilator public */,
     output indirectBusOpInProgress /* verilator public */,
@@ -64,7 +65,7 @@ module bus_interface
     output suspending   /* verilator public */
   );
 
-reg [2:0] clockstate;       // TODO allow half/quarter states
+reg [2:0] clockstate /*verilator public*/;       // TODO allow half/quarter states
 
 wire [19:0] addressSeg;
 wire [19:0] address;
@@ -76,8 +77,9 @@ reg [7:0]  data;
 //wire fallingEdgeClk;
 
 reg [7:0] prefetchQueue [3:0];
+reg [19:0] prefetchQueueLinearAddress [3:0];
 
-reg [2:0] prefetchReadAddr, prefetchWriteAddr;
+reg [2:0] prefetchReadAddr /* verilator public */, prefetchWriteAddr /* verilator public */;
 
 reg waitForPosTransition;
 
@@ -105,6 +107,7 @@ assign prefetchEmpty = (prefetchReadAddr==prefetchWriteAddr) | HOLDA;
 assign prefetchFull = (prefetchReadAddr[1:0]==prefetchWriteAddr[1:0]) && (prefetchReadAddr[2]!=prefetchWriteAddr[2]);
 
 assign prefetchTop = prefetchQueue[prefetchReadAddr[1:0]];
+assign prefetchTopLinearAddress = prefetchQueueLinearAddress[prefetchReadAddr[1:0]];
 
 assign indSegES=(~indirectSeg[2]) & (~indirectSeg[1]) & (~indirectSeg[0]);
 assign indSegCS=(~indirectSeg[2]) & (~indirectSeg[1]) & ( indirectSeg[0]);
@@ -131,7 +134,7 @@ assign indirectBusOpInProgress=indirect | (indirectBytes!=0) | indirectBusCycle;
 
 assign suspending = suspend | requestPrefetchHold | requestFlush;
 
-wire [3:0] qSize /* verilator public */;
+wire [2:0] qSize /* verilator public */;
 assign qSize = prefetchWriteAddr>prefetchReadAddr ? (prefetchWriteAddr - prefetchReadAddr) : ({1'b1,prefetchWriteAddr} - prefetchReadAddr);
 
 always @(posedge CLKx4)
@@ -171,7 +174,7 @@ begin
     if (correctStrobe==0 && correct==1)
     begin
         // Q should be stopped, so adjust PC back by number of bytes in Q
-        REGISTER_IP<=REGISTER_IP - {12'h000,qSize};
+        REGISTER_IP<=REGISTER_IP - {13'h000,qSize};
     end
 
     // Sync with execstate?
@@ -278,6 +281,7 @@ begin
                             if ((~indirectBusCycle) & (prefetchFull==0) & (holdPrefetch==0))
                             begin
                                 prefetchQueue[prefetchWriteAddr[1:0]]<=inAD;
+                                prefetchQueueLinearAddress[prefetchWriteAddr[1:0]]<=address;    // just for debugging purposes
                                 prefetchWriteAddr=prefetchWriteAddr+1;
                                 REGISTER_IP<=REGISTER_IP+1;
                            end

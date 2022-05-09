@@ -29,6 +29,7 @@ module top
   );
 
 wire [7:0] prefetchTop;
+wire [19:0] prefetchTopLinearAddress;
 wire prefetchEmpty, prefetchFull, indirectBusOpInProgress,suspending,pendingIRQ;
 
 wire readTop,flush,suspend,correct,indirect,irq;
@@ -40,7 +41,8 @@ wire [2:0] indSeg;
 bus_interface biu(.CLKx4(CLKx4),.CLK(CLK),.RESET(RESET),.READY(READY),.INTR(INTR),
     .NMI(NMI),.HOLD(HOLD),.inAD(inAD),.outAD(outAD),.enAD(enAD),.A(A),
     .ALE(ALE),.INTA_n(INTA_n),.RD_n(RD_n),.WR_n(WR_n),.IOM(IOM),.DTR(DTR),.DEN_n(DEN_n),.HOLDA(HOLDA),
-    .prefetchTop(prefetchTop),.prefetchEmpty(prefetchEmpty),.prefetchFull(prefetchFull),.indirectBusOpInProgress(indirectBusOpInProgress),.suspending(suspending),.irqPending(pendingIRQ),
+    .prefetchTop(prefetchTop),.prefetchTopLinearAddress(prefetchTopLinearAddress),
+    .prefetchEmpty(prefetchEmpty),.prefetchFull(prefetchFull),.indirectBusOpInProgress(indirectBusOpInProgress),.suspending(suspending),.irqPending(pendingIRQ),
     .advanceTop(readTop),.flush(flush),.suspend(suspend),.correct(correct),.indirect(indirect),.irq(irq),
     .ind_ioMreq(ind_ioMreq),.ind_readWrite(ind_readWrite),.ind_byteWord(ind_byteWord),
     .latchPC(latchPC),.latchCS(latchCS),.latchDS(latchDS),.latchSS(latchSS),.latchES(latchES),
@@ -48,7 +50,7 @@ bus_interface biu(.CLKx4(CLKx4),.CLK(CLK),.RESET(RESET),.READY(READY),.INTR(INTR
     .REGISTER_IP(IP),.REGISTER_CS(CS),.REGISTER_DS(DS),.REGISTER_ES(ES),.REGISTER_SS(SS),.UpdateReg(latchValue));
 
 
-execution eu(.CLKx4(CLKx4),.CLK(CLK),.RESET(RESET),.prefetchTop(prefetchTop),
+execution eu(.CLKx4(CLKx4),.CLK(CLK),.RESET(RESET),.prefetchTop(prefetchTop),.prefetchTopLinearAddress(prefetchTopLinearAddress),
     .prefetchEmpty(prefetchEmpty),.prefetchFull(prefetchFull),.indirectBusOpInProgress(indirectBusOpInProgress),.suspending(suspending),.irqPending(pendingIRQ),
     .readTop(readTop),.flush(flush),.suspend(suspend),.correct(correct),.indirect(indirect),.irq(irq),
     .ind_ioMreq(ind_ioMreq),.ind_readWrite(ind_readWrite),.ind_byteWord(ind_byteWord),
