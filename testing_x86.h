@@ -86,3 +86,7 @@ int CheckMulB(int a,int b, int flagMask, int expected);
 int CheckMulW(int a,int b, int flagMask, int expected, int expected2);
 int CheckIMulB(int a,int b, int flagMask, int expected);
 int CheckIMulW(int a,int b, int flagMask, int expected, int expected2);
+int CheckDivB(int a,int b, int flagMask, int expected);
+int CheckDivW(int al,int ah,int b, int flagMask, int expected, int expected2);
+int CheckIDivB(int a,int b, int flagMask, int expected);
+int CheckIDivW(int al,int ah,int b, int flagMask, int expected, int expected2);

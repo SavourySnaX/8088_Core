@@ -52,8 +52,6 @@ assign OperationShl     = {16{Operation [2] & /*OperationL[1] &*/ OperationL[0] 
 assign OperationShr     = {16{Operation [2] & OperationL[1] & Operation [0] }};
 assign OperationSar     = {16{Operation [2] & Operation [1] & Operation [0] }};
 
-// Todo rest of shifter! - i`ll add tests today for this one :)
-
 assign result8  = 
                   ({A[ 6:0],A[7]} & OperationRol[7:0]) |      // ROL
                   ({A[0],A[ 7:1]} & OperationRor[7:0]) |      // ROR

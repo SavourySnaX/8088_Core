@@ -1495,10 +1495,8 @@ int CheckIMulB(int a,int b, int flagMask, int expected)
         "pop %0\n"
         "pop %1\n"
         : "=a" (ret), "=q" (res)
-        : "q" (a), "0" (b)
+        : "q" (b), "0" (a)
         );
-
-    printf("%02X * %02X = %04X (%04X)\n", a&0xFF,b&0xFF,expected&0xFFFF, (int)(res&0xFFFF));
 
     return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
 }
@@ -1516,10 +1514,83 @@ int CheckIMulW(int a,int b, int flagMask, int expected, int expected2)
         "pop %0\n"
         "pop %1\n"
         : "=a" (ret), "=q" (res), "=d" (res2)
-        : "q" (a), "0" (b)
+        : "q" (b), "0" (a)
         );
-
-    printf("%04X * %04X = %04X%04X (%04X%04X)\n", a&0xFFFF,b&0xFFFF,expected2,expected, (int)(res2&0xFFFF), (int)(res&0xFFFF));
 
     return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF) && ((res2&0xFFFF)==(expected2&0xFFFF)));
 }
+
+int CheckDivB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "div %b2\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=a" (ret), "=q" (res)
+        : "q" (b), "0" (a)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
+{
+    unsigned long ret;
+    unsigned long res;
+    unsigned long res2;
+    
+    __asm__ volatile (
+        "div %w3\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=a" (ret), "=q" (res), "=d" (res2)
+        : "q" (b), "0" (al), "2" (ah)
+        );
+    
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF) && ((res2&0xFFFF)==(expected2&0xFFFF)));
+}
+
+int CheckIDivB(int a,int b, int flagMask, int expected)
+{
+    unsigned long ret;
+    unsigned long res;
+
+    __asm__ volatile (
+        "idiv %b2\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=a" (ret), "=q" (res)
+        : "q" (b), "0" (a)
+        );
+
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
+}
+
+int CheckIDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
+{
+    unsigned long ret;
+    unsigned long res;
+    unsigned long res2;
+    
+    __asm__ volatile (
+        "idiv %w3\n"
+        "push %0\n"
+        "pushfq\n"
+        "pop %0\n"
+        "pop %1\n"
+        : "=a" (ret), "=q" (res), "=d" (res2)
+        : "q" (b), "0" (al), "2" (ah)
+        );
+    
+    return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF) && ((res2&0xFFFF)==(expected2&0xFFFF)));
+}
+

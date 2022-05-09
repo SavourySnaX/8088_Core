@@ -7,8 +7,10 @@
 #include "verilated_vcd_c.h"
 #include "testing_x86.h"
 
-#define ARITH_TESTS 0
-#define UNIT_TEST 1
+#define TRACE  0
+
+#define ARITH_TESTS 1
+#define UNIT_TEST 0
 #define ALL_TESTS 0
 #define TINY_ROM 0
 #define VIDEO_BOOTSTRAP 0
@@ -19,8 +21,6 @@
 
 #define SHOW_WRITES 0
 #define SHOW_READS 0
-
-#define NO_TRACE    ((ALL_TESTS | ARITH_TESTS) && UNIT_TEST) | (!UNIT_TEST)
 
 #define TICK_LIMIT  0 && 300000
 
@@ -416,6 +416,18 @@ void ResetRegisterNumInitial2()
     initialRegisters[7]=0xF776;
 }
 
+void ResetRegisterNumInitial3()
+{
+    initialRegisters[0]=20;
+    initialRegisters[1]=0;
+    initialRegisters[2]=1;
+    initialRegisters[3]=2;
+    initialRegisters[4]=3;
+    initialRegisters[5]=4;
+    initialRegisters[6]=5;
+    initialRegisters[7]=6;
+}
+
 int RegisterNumInitial(int regNum)
 {
     if (regNum>=0 && regNum<8)
@@ -436,9 +448,8 @@ int RegisterNumInitialByte(int regNum)
     return v&0xFF;
 }
 
-void RegisterNum(int regInitVal)
+void LoadRegisters()
 {
-    ResetRegisterNumInitial();
     tb->top->eu->FLAGS=0;
     tb->top->eu->AX=RegisterNumInitial(0);
     tb->top->eu->CX=RegisterNumInitial(1);
@@ -453,21 +464,22 @@ void RegisterNum(int regInitVal)
     tb->top->biu->REGISTER_SS=0x5000;
 }
 
+void RegisterNum(int regInitVal)
+{
+    ResetRegisterNumInitial();
+    LoadRegisters();
+}
+
 void RegisterNum2(int regInitVal)
 {
     ResetRegisterNumInitial2();
-    tb->top->eu->FLAGS=0;
-    tb->top->eu->AX=RegisterNumInitial(0);
-    tb->top->eu->CX=RegisterNumInitial(1);
-    tb->top->eu->DX=RegisterNumInitial(2);
-    tb->top->eu->BX=RegisterNumInitial(3);
-    tb->top->eu->SP=RegisterNumInitial(4);
-    tb->top->eu->BP=RegisterNumInitial(5);
-    tb->top->eu->SI=RegisterNumInitial(6);
-    tb->top->eu->DI=RegisterNumInitial(7);
-    tb->top->biu->REGISTER_DS=0x1000;
-    tb->top->biu->REGISTER_ES=0x3000;
-    tb->top->biu->REGISTER_SS=0x5000;
+    LoadRegisters();
+}
+
+void RegisterNum3(int regInitVal)
+{
+    ResetRegisterNumInitial3();
+    LoadRegisters();
 }
 
 void RegisterNumCX(int regInitVal)
@@ -1953,22 +1965,259 @@ int ValidateMulRM(const char* testData, int counter, int testCnt, int regInitVal
 int ValidateIMulRM(const char* testData, int counter, int testCnt, int regInitVal)
 {
     int word = Extract(testData,'W',counter,testCnt);
-    int mod = 3;//Extract(testData,'M',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
     int RM = Extract(testData,'m',counter,testCnt);
     int dispL = Extract(testData,'l', counter, testCnt);
     int dispH = Extract(testData,'h', counter, testCnt);
 
-    int opAValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
-    int opBValue = RegisterNumInitial(ERegisterNum::AX);
+    int opBValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+    int opAValue = RegisterNumInitial(ERegisterNum::AX);
 
     int hValue=FetchWordRegister(ERegisterNum::AX);
 
     if (word)
-        return CheckIMulW(opAValue, opBValue, FLAG_C | FLAG_O, hValue, FetchWordRegister(ERegisterNum::DX));
+        return CheckIMulW(opAValue&0xFFFF, opBValue&0xFFFF, FLAG_C | FLAG_O, hValue, FetchWordRegister(ERegisterNum::DX));
     
-    return CheckIMulB(opAValue, opBValue, FLAG_C | FLAG_O, hValue); // Don't check Unknown flags
+    return CheckIMulB(opAValue&0xFF, opBValue&0xFF, FLAG_C | FLAG_O, hValue); // Don't check Unknown flags
 }
 
+int ValidatePopSR(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int r = Extract(testData,'r', counter, testCnt);
+    
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sr = FetchSR(r);
+    int sp = tb->top->eu->SP;
+
+    int isr = FetchInitialSR(r);
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchReadMemory(1,iss, isp);
+
+    // Stack segment should not change (unless we are popping SS of course)
+    if (ss!=iss && r!=ESRReg::SS)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 more
+    if (sp!=isp+2)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp+2, sp);
+        return 0;
+    }
+
+    // sr should match the value from the stack
+    if (sr != stackValue)
+    {
+        printf("Segment Register Mismatch %04X != %04X\n", stackValue, sr);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidatePopRW(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int r = Extract(testData,'r', counter, testCnt);
+    
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sr = FetchWordRegister(r);
+    int sp = tb->top->eu->SP;
+
+    int isr = RegisterNumInitialWord(r);
+
+    //if (r == ERegisterNum::SP)
+//        isr=isr-2;  // Push SP pushes SP decremented already.
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchReadMemory(1,iss, isp);
+
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 more (unless popping SP)
+    if (sp!=isp+2 && r!=ERegisterNum::SP)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp+2, sp);
+        return 0;
+    }
+
+    if (sr != stackValue)
+    {
+        printf("Register Mismatch %04X != %04X\n", stackValue, sr);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidateJmpRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int instructionLength = 1 + FetchModRMLength(1,1,mod,99,RM);
+
+    int opAValue = FetchSourceValue(1,1,mod,99,RM,dispL,dispH);
+
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int cs = tb->top->biu->REGISTER_CS;
+
+    int ics = FetchInitialSR(ESRReg::CS);
+    
+    // Code segment should not change
+    if (cs!=ics)
+    {
+        printf("Code Segment Register Mismatch %04X != %04X\n", ics, cs);
+        return 0;
+    }
+
+    if (ip != opAValue)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", opAValue, ip);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidateDivRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = RegisterNumInitial(ERegisterNum::AX);
+    int opAHValue = RegisterNumInitial(ERegisterNum::DX);
+    int opBValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+
+    if (opBValue==0)
+    {
+        int vector = FetchReadMemory(1,0,0);
+
+        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+        return ip==vector;
+    }
+    else
+    {
+        uint32_t divA,divB;
+        if (word)
+        {
+            divA= (opAHValue<<16)|(opAValue);
+            divB= opBValue;
+
+            if (divA/divB > 65535)
+            {
+                int vector = FetchReadMemory(1,0,0);
+
+                int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+                return ip==vector;
+            }
+        }
+        else
+        {
+            divA= opAValue;
+            divB= opBValue;
+
+            if (divA/divB > 255)
+            {
+                int vector = FetchReadMemory(1,0,0);
+
+                int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+                return ip==vector;
+            }
+        }
+
+        int hValue=FetchWordRegister(ERegisterNum::AX);
+
+        if (word)
+        {
+            int rValue = FetchWordRegister(ERegisterNum::DX);
+            return CheckDivW(opAValue,opAHValue, opBValue, 0, hValue, FetchWordRegister(ERegisterNum::DX));
+        }
+        return CheckDivB(opAValue, opBValue, 0, hValue); // Don't check Unknown flags
+    }
+}
+
+int ValidateIDivRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = RegisterNumInitial(ERegisterNum::AX);
+    int opAHValue = RegisterNumInitial(ERegisterNum::DX);
+    int opBValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+
+    if (opBValue==0)
+    {
+        int vector = FetchReadMemory(1,0,0);
+
+        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+        return ip==vector;
+    }
+    else
+    {
+        int32_t divA,divB;
+        if (word)
+        {
+            divA= ((opAHValue<<16)|(opAValue));
+            divB= opBValue;
+            if ((divB&0x8000) == 0x8000)
+                divB|=0xFFFF0000;
+
+            if ((divA/divB > 32767) || (divA/divB<-32768))
+            {
+                int vector = FetchReadMemory(1,0,0);
+
+                int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+                return ip==vector;
+            }
+        }
+        else
+        {
+            divA= opAValue;
+            if ((divA&0x8000) == 0x8000)
+                divA|=0xFFFF0000;
+            divB= opBValue;
+            if ((divB&0x80) == 0x80)
+                divB|=0xFFFFFF00;
+
+            if ((divA/divB > 127) || (divA/divB<-128))
+            {
+                int vector = FetchReadMemory(1,0,0);
+
+                int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+                return ip==vector;
+            }
+        }
+
+        int hValue=FetchWordRegister(ERegisterNum::AX);
+
+        if (word)
+        {
+            int rValue = FetchWordRegister(ERegisterNum::DX);
+            return CheckIDivW(opAValue,opAHValue, opBValue, 0, hValue, FetchWordRegister(ERegisterNum::DX));
+        }
+        return CheckIDivB(opAValue, opBValue, 0, hValue); // Don't check Unknown flags
+    }
+}
 
 #define TEST_MULT 4
 
@@ -2052,10 +2301,21 @@ const char* testArray[]={
     "01010rrr ",                                                (const char*)ValidatePushRW,                    (const char*)RegisterNum,       (const char*)0,           // push rw
     "1111011W MM100mmm llllllll hhhhhhhh ",                     (const char*)ValidateMulRM,                     (const char*)RegisterNum,       (const char*)0,           // mul rm 
     "1111011W MM100mmm llllllll hhhhhhhh ",                     (const char*)ValidateMulRM,                     (const char*)RegisterNum2,      (const char*)0,           // mul rm
-    "1111011W 11101mmm llllllll hhhhhhhh ",                     (const char*)ValidateIMulRM,                    (const char*)RegisterNum,       (const char*)0,           // imul rm 
-    "1111011W 11101mmm llllllll hhhhhhhh ",                     (const char*)ValidateIMulRM,                    (const char*)RegisterNum2,      (const char*)0,           // imul rm 
+    "1111011W MM100mmm llllllll hhhhhhhh ",                     (const char*)ValidateMulRM,                     (const char*)RegisterNum3,      (const char*)0,           // mul rm
+    "1111011W MM101mmm llllllll hhhhhhhh ",                     (const char*)ValidateIMulRM,                    (const char*)RegisterNum,       (const char*)0,           // imul rm 
+    "1111011W MM101mmm llllllll hhhhhhhh ",                     (const char*)ValidateIMulRM,                    (const char*)RegisterNum2,      (const char*)0,           // imul rm 
+    "1111011W MM101mmm llllllll hhhhhhhh ",                     (const char*)ValidateIMulRM,                    (const char*)RegisterNum3,      (const char*)0,           // imul rm 
+    "000rr111 ",                                                (const char*)ValidatePopSR,                     (const char*)RegisterNum,       (const char*)0,           // pop sr
+    "01011rrr ",                                                (const char*)ValidatePopRW,                     (const char*)RegisterNum,       (const char*)0,           // pop rw
+    "11111111 MM100mmm llllllll hhhhhhhh ",                     (const char*)ValidateJmpRM,                     (const char*)RegisterNum,       (const char*)0,           // jmp rm
+    "1111011W MM110mmm llllllll hhhhhhhh ",                     (const char*)ValidateDivRM,                     (const char*)RegisterNum,       (const char*)0,           // div rm 
+    "1111011W MM110mmm llllllll hhhhhhhh ",                     (const char*)ValidateDivRM,                     (const char*)RegisterNum2,      (const char*)0,           // div rm 
+    "1111011W MM110mmm llllllll hhhhhhhh ",                     (const char*)ValidateDivRM,                     (const char*)RegisterNum3,      (const char*)0,           // div rm 
+    "1111011W MM111mmm llllllll hhhhhhhh ",                     (const char*)ValidateIDivRM,                    (const char*)RegisterNum,       (const char*)0,           // idiv rm 
+    "1111011W MM111mmm llllllll hhhhhhhh ",                     (const char*)ValidateIDivRM,                    (const char*)RegisterNum2,      (const char*)0,           // idiv rm 
+    "1111011W MM111mmm llllllll hhhhhhhh ",                     (const char*)ValidateIDivRM,                    (const char*)RegisterNum3,      (const char*)0,           // idiv rm 
 #endif
-    // TODO ADD TESTS FOR POP sr, RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], POP rw, PUSHF, POPF, CBW, LEA r,rm
+    // TODO ADD TESTS FOR RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], PUSHF, POPF, CBW, LEA r,rm, XCHG AX,rw
     0
 };
 
@@ -2644,28 +2904,152 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
 
 #define TEST_MULT 6
 
+int GuardCheckDivB(int a,int b, int flagMask, int expected)
+{
+    if (b==0)
+    {
+        int vector = 0x100;
+
+        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+        return ip==vector;
+    }
+    else
+    {
+        uint32_t divA,divB;
+        divA= a;
+        divB= b;
+
+        if (divA/divB > 255)
+        {
+            int vector = 0x100;
+
+            int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+            return ip==vector;
+        }
+
+        return CheckDivB(a, b, flagMask, expected);
+    }
+}
+
+int GuardCheckIDivB(int a,int b, int flagMask, int expected)
+{
+    if (b==0)
+    {
+        int vector = 0x100;
+
+        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+        return ip==vector;
+    }
+    else
+    {
+        int32_t divA,divB;
+        divA= a;
+        if ((divA&0x8000) == 0x8000)
+            divA|=0xFFFF0000;
+        divB= b;
+        if ((divB&0x80) == 0x80)
+            divB|=0xFFFFFF00;
+
+        if ((divA/divB > 127) || (divA/divB<-128))
+        {
+            int vector = 0x100;
+
+            int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+            return ip==vector;
+        }
+
+        return CheckIDivB(a, b, flagMask, expected);
+    }
+}
+
+int GuardCheckDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
+{
+    if (b==0)
+    {
+        int vector = 0x100;
+
+        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+        return ip==vector;
+    }
+    else
+    {
+        uint32_t divA,divB;
+        divA= (ah<<16)|(al);
+        divB= b;
+
+        if (divA/divB > 65535)
+        {
+            int vector = 0x100;
+
+            int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+            return ip==vector;
+        }
+
+        return CheckDivW(al,ah, b, flagMask, expected, expected2);
+    }
+}
+
+int GuardCheckIDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
+{
+    if (b==0)
+    {
+        int vector = 0x100;
+
+        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+        return ip==vector;
+    }
+    else
+    {
+        int32_t divA,divB;
+        divA= ((ah<<16)|(al));
+        divB= b;
+        if ((divB&0x8000) == 0x8000)
+            divB|=0xFFFF0000;
+
+        if ((divA/divB > 32767) || (divA/divB<-32768))
+        {
+            int vector = 0x100;
+
+            int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+            return ip==vector;
+        }
+
+        return CheckIDivW(al,ah,b,flagMask,expected,expected2);
+    }
+}
+
 // 0 = opA,opB,flags,result
 // 1 = opA,opB,cIn,flags,result
 // 2 = opA, flags, result
 // 3 = opA,opB,flags,result  (but result in AX)
-
+// 4 = opA,opB,flags,resulthi,resultlo  (DX,AX)
+// 5 = opAl,opAH,opB,flags,resulthi,resultlo  (DX,AX)
+// 6 = opA,opB,flags,result  (but result in AX)
 const char* testArray[]={ 
     // Byte Tests
-#if 0
+#if 1
     "\x00""\xC1",       (const char*)2,         (const char*)CheckAddResultB,       "add cl,al",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)0,
     "\x10""\xC1",       (const char*)2,         (const char*)CheckAdcResultB,       "adc cl,al",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)1,
     "\xF6""\xD9",       (const char*)2,         (const char*)CheckNegResultB,       "neg cl",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
     "\xF6""\xE1",       (const char*)2,         (const char*)CheckMulB,             "mul cl",       (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
-#endif    
     "\xF6""\xE9",       (const char*)2,         (const char*)CheckIMulB,            "imul cl",      (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
+    "\xF6""\xF1",       (const char*)2,         (const char*)GuardCheckDivB,        "div cl",       (const char*)(0),                                               (const char*)6,
+    "\xF6""\xF9",       (const char*)2,         (const char*)GuardCheckIDivB,       "idiv cl",      (const char*)(0),                                               (const char*)6,
+#endif    
 
 
     (const char*)1,     0,                      0,                                  0,              0,                                                              0,// switch to word based
 
 
     // Word Tests
-#if 0
-    "\xF7""\xD9",       (const char*)2,         (const char*)CheckNegResultW,       "neg cx",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
+#if 1
+    //"\x01""\xC1",       (const char*)2,         (const char*)CheckAddResultW,       "add cx,ax",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)0,
+    //"\x11""\xC1",       (const char*)2,         (const char*)CheckAdcResultW,       "adc cx,ax",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)1,
+    //"\xF7""\xD9",       (const char*)2,         (const char*)CheckNegResultW,       "neg cx",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
+//    "\xF7""\xE1",       (const char*)2,         (const char*)CheckMulW,             "mul cx",       (const char*)(FLAG_O|FLAG_C),                                   (const char*)4,
+//    "\xF7""\xE9",       (const char*)2,         (const char*)CheckIMulW,            "imul cx",      (const char*)(FLAG_O|FLAG_C),                                   (const char*)4,
+    //"\xF7""\xF1",       (const char*)2,         (const char*)GuardCheckDivW,            "div cx",      (const char*)(0),                                   (const char*)5,
+ //   "\xF7""\xF9",       (const char*)2,         (const char*)GuardCheckIDivW,           "idiv cx",      (const char*)(0),                                   (const char*)5,
 #endif
     0};
 
@@ -2680,8 +3064,9 @@ long currentTestCounter;
 typedef int (*Validate0)(int,int,int,int);
 typedef int (*Validate1)(int,int,int,int,int);
 typedef int (*Validate2)(int,int,int);
+typedef int (*Validate3)(int,int,int,int,int,int);
 
-int operandA,operandB,cIn;
+int operandA,operandB,cIn,operandC;
 
 int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
 {
@@ -2727,8 +3112,13 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                     if (testArray[testPos*TEST_MULT+5]==(const char*)2)
                         currentTestCnt=256;
                     else
-                        currentTestCnt=65536;
-                    currentTestCounter=0;
+                    {
+                        if (testArray[testPos*TEST_MULT+5]==(const char*)6)
+                            currentTestCnt=65536l*65536;
+                        else
+                            currentTestCnt=65536;
+                    }
+                    currentTestCounter=0;//30480285;
                 }
                 else
                 {
@@ -2741,6 +3131,8 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
 
                 if (testArray[testPos*TEST_MULT+5]==(const char*)1)
                     currentTestCnt*=2;  // need an extra bit for carry
+                if (testArray[testPos*TEST_MULT+5]==(const char*)5)
+                    currentTestCnt*=65536;
             }
             break;
         case 1:
@@ -2762,18 +3154,42 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
             {
                 if (byteMode)
                 {
-                    operandA=currentTestCounter&0xFF;
-                    operandB=(currentTestCounter>>8)&0xFF;
-                    cIn=(currentTestCounter>>16)&1;
+                    if (testArray[testPos*TEST_MULT+5]==(const char*)6)
+                    {
+                        operandA=currentTestCounter&0xFFFF;
+                        operandB=(currentTestCounter>>16)&0xFF;
+                        cIn=(currentTestCounter>>24)&1;
+                    }
+                    else
+                    {
+/*                        operandA=0x81;
+                        operandB=0x19;
+                        currentTestCnt=1;
+*/
+                        operandA=currentTestCounter&0xFF;
+                        operandB=(currentTestCounter>>8)&0xFF;
+                        cIn=(currentTestCounter>>16)&1;
+                    }
                 }
                 else
                 {
                     operandA=currentTestCounter&0xFFFF;
                     operandB=(currentTestCounter>>16)&0xFFFF;
-                    cIn=(currentTestCounter>>32)&1;
+                    if (testArray[testPos*TEST_MULT+5]==(const char*)5)
+                    {
+                        operandC=(currentTestCounter>>32)&0xFFFF;
+                    }
+                    else
+                    {
+                        cIn=(currentTestCounter>>32)&1;
+                    }
                 }
-                tb->top->eu->CX=operandA;
-                tb->top->eu->AX=operandB;
+                if (testArray[testPos*TEST_MULT+5]==(const char*)2)
+                    tb->top->eu->CX=operandA;
+                else
+                    tb->top->eu->CX=operandB;
+                tb->top->eu->AX=operandA;
+                tb->top->eu->DX=operandC;
 
                 if (testArray[testPos*TEST_MULT+5]==(const char*)1)
                 {
@@ -2807,7 +3223,15 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                         ok = ((Validate2)testArray[testPos*TEST_MULT+2])(operandA,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->CX);
                         break;
                     case 3:
+                    case 6:
                         ok = ((Validate0)testArray[testPos*TEST_MULT+2])(operandA,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->AX);
+                        break;
+                    case 4:
+                        ok = ((Validate1)testArray[testPos*TEST_MULT+2])(operandA,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->AX,tb->top->eu->DX);
+                        break;
+// 5 = opAl,opAH,opB,flags,resulthi,resultlo  (DX,AX)
+                    case 5:
+                        ok = ((Validate3)testArray[testPos*TEST_MULT+2])(operandA,operandC,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->AX,tb->top->eu->DX);
                         break;
                 }
                 if (!ok)
@@ -2815,13 +3239,28 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                     if (byteMode)
                         printf("\nERROR %s %02X,%02X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
                     else
-                        printf("\nERROR %s %04X,%04X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
+                    {
+                        if (testArray[testPos*TEST_MULT+5]==(const char*)5)
+                            printf("\nERROR %s %04X%04X,%04X\n",testArray[testPos*TEST_MULT+3],operandC,operandA,operandB);
+                        else
+                            printf("\nERROR %s %04X,%04X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
+                    }
                     testState=99;
                 }
                 else
                 {
-                    currentTestCounter++;
-                    if (currentTestCounter==currentTestCnt)
+                    if (currentTestCnt<=65536)
+                    {
+                        currentTestCounter++;
+                    }
+                    else
+                    {
+                        if (testArray[testPos*TEST_MULT+5]==(const char*)5)
+                            currentTestCounter+=0x00010007000D;
+                        else
+                            currentTestCounter+=0x01000D;
+                    }
+                    if (currentTestCounter>=currentTestCnt)
                     {
                         printf("\nAll Tests PASSED (%s)\n",testArray[testPos*TEST_MULT+3]);
                         testPos++;
@@ -2918,16 +3357,16 @@ void tick(Vtop *tb, VerilatedVcdC* trace, int ticks)
 {
     tb->CLK=ck;
     tb->CLKx4=1;
-#if !NO_TRACE
+#if TRACE
     trace->dump(ticks*10-2);
 #endif
     tb->eval();
-#if !NO_TRACE
+#if TRACE
     trace->dump(ticks*10);
 #endif
     tb->CLKx4=0;
     tb->eval();
-#if !NO_TRACE
+#if TRACE
     trace->dump(ticks*10+5);
     trace->flush();
 #endif
@@ -2980,7 +3419,7 @@ int main(int argc, char** argv)
 {
 	Verilated::commandArgs(argc,argv);
 
-#if !NO_TRACE
+#if TRACE
 	Verilated::traceEverOn(true);
 #endif
 
@@ -2988,7 +3427,7 @@ int main(int argc, char** argv)
 
 	VerilatedVcdC *trace = new VerilatedVcdC;
 
-#if !NO_TRACE
+#if TRACE
 	tb->trace(trace, 99);
 	trace->open("trace.vcd");
 #endif
@@ -3024,7 +3463,7 @@ int main(int argc, char** argv)
         ticks = doNTicks(tb,trace,ticks,1);
     }
 
-#if !NO_TRACE
+#if TRACE
 	trace->close();
 #endif
 	exit(EXIT_SUCCESS);

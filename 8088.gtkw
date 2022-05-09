@@ -1,22 +1,22 @@
 [*]
 [*] GTKWave Analyzer v3.3.104 (w)1999-2020 BSI
-[*] Mon Feb 21 15:16:38 2022
+[*] Mon May  9 07:15:52 2022
 [*]
 [dumpfile] "/home/snax/BackedUp/fpga/verilator/8088konix/trace.vcd"
-[dumpfile_mtime] "Mon Feb 21 15:13:58 2022"
-[dumpfile_size] 87151
+[dumpfile_mtime] "Mon May  9 07:14:09 2022"
+[dumpfile_size] 113961
 [savefile] "/home/snax/BackedUp/fpga/verilator/8088konix/8088.gtkw"
-[timestart] 4115
-[size] 5052 2752
-[pos] -1 -1
-*-8.000000 6420 8990 12830 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[timestart] 3634
+[size] 2523 1376
+[pos] -46 -46
+*-8.000000 4340 8990 12830 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
 [treeopen] TOP.
 [treeopen] TOP.top.
 [treeopen] TOP.top.eu.
 [sst_width] 388
 [signals_width] 467
 [sst_expanded] 1
-[sst_vpaned_height] 1697
+[sst_vpaned_height] 874
 @200
 -PINS
 @28
@@ -52,6 +52,7 @@ TOP.top.biu.address[19:0]
 @28
 TOP.top.biu.prefetchEmpty
 TOP.top.biu.prefetchFull
+TOP.top.biu.qSize[2:0]
 @22
 TOP.top.biu.prefetchQueue(0)[7:0]
 TOP.top.biu.prefetchQueue(1)[7:0]
@@ -104,7 +105,7 @@ TOP.top.biu.indirectSeg[2:0]
 @22
 TOP.top.eu.OPRr[15:0]
 TOP.top.eu.OPRw[15:0]
-@29
+@28
 TOP.top.eu.repeatF
 @200
 -ALU
@@ -143,7 +144,9 @@ TOP.top.eu.myshifter.F_Carry
 -INTERNAL REGISTERS
 @22
 TOP.top.eu.tmpa[15:0]
+@23
 TOP.top.eu.tmpb[15:0]
+@22
 TOP.top.eu.tmpc[15:0]
 TOP.top.eu.icnt[3:0]
 TOP.top.eu.SIGMA[15:0]
