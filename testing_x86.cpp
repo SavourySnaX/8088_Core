@@ -1572,6 +1572,9 @@ int CheckIDivB(int a,int b, int flagMask, int expected)
         : "q" (b), "0" (a)
         );
 
+    if ((res&0xFFFF)!=(expected&0xFFFF))
+        printf("\n%04X / %02X = %04X vs %04X\n",a&0xFFFF,b&0xFF,res&0xFFFF,expected&0xFFFF);
+
     return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
 }
 
@@ -1594,3 +1597,132 @@ int CheckIDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
     return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF) && ((res2&0xFFFF)==(expected2&0xFFFF)));
 }
 
+
+#define topBit(ppp) ((ppp & (_wordSize?0x8000:0x80))!=0)
+#define sizeMask() (_wordSize?0xFFFF:0xFF)
+#define wait(n) {}//
+#define interrupt(n) {}//
+
+#define ax() ax
+#define dx() dx
+
+//// HACK
+bool div(uint16_t l, uint16_t h,uint16_t _source,int _wordSize, int _signed,int intrpt, uint16_t expectedL,uint16_t expectedH, int& result)
+{
+    result=0;
+    int bitCount = 8;
+    if (_wordSize) {
+        //l = ax();
+        //h = dx();
+        bitCount = 16;
+    }
+    bool negative = false;
+    bool dividendNegative = false;
+    if (_signed) 
+    {
+        if (topBit(h)) {
+            h = ~h;
+            l = (~l + 1) & sizeMask();
+            if (l == 0)
+                ++h;
+            h &= sizeMask();
+            negative = true;
+            dividendNegative = true;
+            wait(4);
+        }
+        if (topBit(_source)) {
+            _source = ~_source + 1;
+            negative = !negative;
+        }
+        else
+            wait(1);
+        wait(9);
+        wait(3);
+    }
+    wait(8);
+    _source &= sizeMask();
+    if (h >= _source) {
+        wait(1); //2); //3);
+        if (_signed)
+            wait(1);
+        interrupt(0);
+/*        if (!intrpt)
+            printf("\nINT0 (early)\n");*/
+        result=2;
+        return false;
+    }
+    if (_signed)
+        wait(1);
+    wait(2);
+    bool carry = true;
+    for (int b = 0; b < bitCount; ++b) {
+        //printf("L : %04X\n",l);
+        //printf("carryInToShift : %d\n",carry);
+        uint16_t r = (l << 1) + (carry ? 1 : 0);
+        carry = topBit(l);
+        l = r;//&0xFF;
+        r = (h << 1) + (carry ? 1 : 0);
+        carry = topBit(h);
+        h = r;//&0xFF;
+        wait(8);
+        if (carry) {
+            carry = false;
+            h -= _source;
+            if (b == bitCount - 1)
+                wait(2);
+        }
+        else {
+            carry = _source > h;
+            if (!carry) {
+                h -= _source;
+                wait(1);
+                if (b == bitCount - 1)
+                    wait(2);
+            }
+        }
+    }
+    //printf("carryOut : %d\n",carry);
+    //printf("Pre Final L : %04X\n",l);
+    l = ~((l << 1) + (carry ? 1 : 0));
+    //printf("Final L : %04X\n",l);
+    if (_signed) {
+        wait(4);
+        if (topBit(l)) {
+            wait(1);
+            wait(1); //2);
+            interrupt(0);
+/*            if (!intrpt)
+                printf("\nINT0 (late)\n");*/
+            result=1;
+            return false;
+        }
+        wait(7);
+        if (negative)
+            l = ~l + 1;
+        if (dividendNegative)
+            h = ~h + 1;
+    }
+    //ah() = h & 0xff;
+    //al() = l & 0xff;
+    if (_wordSize) {
+        
+        if ((expectedL != l) || (expectedH != h))
+        {
+            printf("\nREM: %04X, QUO: %04X   vs    %04X %04X\n",h,l,expectedH,expectedL);
+            result = 3;
+        }
+        //dx() = h;
+        //ax() = l;
+    }
+    else
+    {
+        if ((expectedL != (l&0xFF)) || (expectedH != (h&0xFF)))
+        {
+            printf("\nREM: %02X, QUO: %02X   vs   %02X %02X\n",h&0xFF,l&0xFF,expectedH,expectedL);
+            result=3;
+        }
+    }
+    if (intrpt)
+        printf("\nFAILED\n");
+    return true;
+}

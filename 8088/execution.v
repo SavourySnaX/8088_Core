@@ -3206,6 +3206,7 @@ begin
                     begin
                         // SIGMA->tmpa  CF1
                         tmpa<=SIGMA;
+                        carryIn<=fc;
                         repeatF<=~repeatF;
                         executionState<=9'h1bb;
                     end
@@ -3244,6 +3245,7 @@ begin
                     begin
                         // SIGMA->tmpb
                         tmpb<=SIGMA;
+                        carryIn<=fc;
                         repeatF<=~repeatF;
                         executionState<=PostEffectiveAddressReturn;
                     end
@@ -3291,7 +3293,9 @@ begin
 //1c4 ABC  F HI  L NO   STU                          5   NCY   INT0        100100100.00  POSTIDIV
                 9'h1C4:
                     begin
-                        if (carryIn^fs)
+                        //if ((instruction[0] & aluA[15:0]>16'h8000)|((~instruction[0]) & aluA[7:0]>8'h80)) // -128 is in range
+                        //if (carryIn==0)
+                        if (fs==1)
                             executionState<=9'h1a7;
                         else
                             executionState<=9'h1c5;
@@ -3346,7 +3350,7 @@ begin
                 9'h1CA:
                     begin
                         if (repeatF)
-                            executionState<=9'h1cd;
+                            executionState<=9'h1cc;
                         else
                             executionState<=9'h1cb;
                     end

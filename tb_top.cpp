@@ -1,4 +1,6 @@
 #include <stdlib.h>
+#include <signal.h>
+#include <setjmp.h>
 #include "Vtop.h"
 #include "Vtop_top.h"
 #include "Vtop_execution.h"
@@ -9,9 +11,9 @@
 
 #define TRACE  0
 
-#define ARITH_TESTS 1
-#define UNIT_TEST 0
-#define ALL_TESTS 0
+#define ARITH_TESTS 0
+#define UNIT_TEST 1
+#define ALL_TESTS 1
 #define TINY_ROM 0
 #define VIDEO_BOOTSTRAP 0
 #define TEST_P88 0
@@ -2315,7 +2317,7 @@ const char* testArray[]={
     "1111011W MM111mmm llllllll hhhhhhhh ",                     (const char*)ValidateIDivRM,                    (const char*)RegisterNum2,      (const char*)0,           // idiv rm 
     "1111011W MM111mmm llllllll hhhhhhhh ",                     (const char*)ValidateIDivRM,                    (const char*)RegisterNum3,      (const char*)0,           // idiv rm 
 #endif
-    // TODO ADD TESTS FOR RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], PUSHF, POPF, CBW, LEA r,rm, XCHG AX,rw
+    // TODO ADD TESTS FOR  : RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], PUSHF, POPF, CBW, LEA r,rm, XCHG AX,rw
     0
 };
 
@@ -2931,35 +2933,58 @@ int GuardCheckDivB(int a,int b, int flagMask, int expected)
     }
 }
 
+bool div(uint16_t l, uint16_t h,uint16_t _source,int _wordSize, int _signed, int intrpt,uint16_t expectedL, uint16_t expectedH, int& res);
+
+static sigjmp_buf fpe_env;
+
+
+volatile int interrupt=0;
+static void handler(int signal, siginfo_t* w, void* a)
+{
+    siglongjmp(fpe_env, w->si_code);
+}
+
 int GuardCheckIDivB(int a,int b, int flagMask, int expected)
 {
-    if (b==0)
+/*    struct sigaction act,old;
+    interrupt=0;
+    int ok=0;
+
+    int code=sigsetjmp(fpe_env,1);
+    if (code==0)
+    {
+        act.sa_sigaction = handler;
+        sigemptyset(&act.sa_mask);
+        act.sa_flags=SA_SIGINFO;
+        if (sigaction(SIGFPE,&act,&old)<0)
+            exit(1);
+        ok= CheckIDivB(a, b, flagMask, expected);
+        if (sigaction(SIGFPE,&old,NULL)<0)
+            exit(1);
+    }
+    else
+    {
+        if (sigaction(SIGFPE,&old,NULL)<0)
+            exit(1);
+
+        interrupt=1;
+        //printf("\n\n\nEXCEPTED\n");
+    }
+*/
+    int ok=0;
+    int answer=div(a&0xFF,a>>8,b,0,1,interrupt,tb->top->eu->AX&0xFF,tb->top->eu->AX>>8,ok);
+
+    //if (interrupt)
+    if (!answer)
     {
         int vector = 0x100;
 
         int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+        if (ip!=vector)
+            printf("\nDIDN'T CATCH OVERFLOW\n");
         return ip==vector;
     }
-    else
-    {
-        int32_t divA,divB;
-        divA= a;
-        if ((divA&0x8000) == 0x8000)
-            divA|=0xFFFF0000;
-        divB= b;
-        if ((divB&0x80) == 0x80)
-            divB|=0xFFFFFF00;
-
-        if ((divA/divB > 127) || (divA/divB<-128))
-        {
-            int vector = 0x100;
-
-            int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
-            return ip==vector;
-        }
-
-        return CheckIDivB(a, b, flagMask, expected);
-    }
+    return ok==0;
 }
 
 int GuardCheckDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
@@ -2991,31 +3016,19 @@ int GuardCheckDivW(int al,int ah,int b, int flagMask, int expected, int expected
 
 int GuardCheckIDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
 {
-    if (b==0)
+    int ok=0;
+    int answer=div(al,ah,b,1,1,interrupt,tb->top->eu->AX,tb->top->eu->DX,ok);
+
+    if (!answer)
     {
         int vector = 0x100;
 
         int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+        if (ip!=vector)
+            printf("\nDIDN'T CATCH OVERFLOW\n");
         return ip==vector;
     }
-    else
-    {
-        int32_t divA,divB;
-        divA= ((ah<<16)|(al));
-        divB= b;
-        if ((divB&0x8000) == 0x8000)
-            divB|=0xFFFF0000;
-
-        if ((divA/divB > 32767) || (divA/divB<-32768))
-        {
-            int vector = 0x100;
-
-            int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
-            return ip==vector;
-        }
-
-        return CheckIDivW(al,ah,b,flagMask,expected,expected2);
-    }
+    return ok==0;
 }
 
 // 0 = opA,opB,flags,result
@@ -3028,12 +3041,12 @@ int GuardCheckIDivW(int al,int ah,int b, int flagMask, int expected, int expecte
 const char* testArray[]={ 
     // Byte Tests
 #if 1
-    "\x00""\xC1",       (const char*)2,         (const char*)CheckAddResultB,       "add cl,al",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)0,
-    "\x10""\xC1",       (const char*)2,         (const char*)CheckAdcResultB,       "adc cl,al",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)1,
-    "\xF6""\xD9",       (const char*)2,         (const char*)CheckNegResultB,       "neg cl",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
-    "\xF6""\xE1",       (const char*)2,         (const char*)CheckMulB,             "mul cl",       (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
-    "\xF6""\xE9",       (const char*)2,         (const char*)CheckIMulB,            "imul cl",      (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
-    "\xF6""\xF1",       (const char*)2,         (const char*)GuardCheckDivB,        "div cl",       (const char*)(0),                                               (const char*)6,
+//    "\x00""\xC1",       (const char*)2,         (const char*)CheckAddResultB,       "add al,cl",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)0,
+//    "\x10""\xC1",       (const char*)2,         (const char*)CheckAdcResultB,       "adc al,cl",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)1,
+//    "\xF6""\xD9",       (const char*)2,         (const char*)CheckNegResultB,       "neg cl",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
+//    "\xF6""\xE1",       (const char*)2,         (const char*)CheckMulB,             "mul cl",       (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
+//    "\xF6""\xE9",       (const char*)2,         (const char*)CheckIMulB,            "imul cl",      (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
+//    "\xF6""\xF1",       (const char*)2,         (const char*)GuardCheckDivB,        "div cl",       (const char*)(0),                                               (const char*)6,
     "\xF6""\xF9",       (const char*)2,         (const char*)GuardCheckIDivB,       "idiv cl",      (const char*)(0),                                               (const char*)6,
 #endif    
 
@@ -3049,7 +3062,7 @@ const char* testArray[]={
 //    "\xF7""\xE1",       (const char*)2,         (const char*)CheckMulW,             "mul cx",       (const char*)(FLAG_O|FLAG_C),                                   (const char*)4,
 //    "\xF7""\xE9",       (const char*)2,         (const char*)CheckIMulW,            "imul cx",      (const char*)(FLAG_O|FLAG_C),                                   (const char*)4,
     //"\xF7""\xF1",       (const char*)2,         (const char*)GuardCheckDivW,            "div cx",      (const char*)(0),                                   (const char*)5,
- //   "\xF7""\xF9",       (const char*)2,         (const char*)GuardCheckIDivW,           "idiv cx",      (const char*)(0),                                   (const char*)5,
+    "\xF7""\xF9",       (const char*)2,         (const char*)GuardCheckIDivW,           "idiv cx",      (const char*)(0),                                   (const char*)5,
 #endif
     0};
 
@@ -3156,16 +3169,18 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                 {
                     if (testArray[testPos*TEST_MULT+5]==(const char*)6)
                     {
+#if TRACE
+                        operandA=0xFF00;
+                        operandB=0x02;
+                        currentTestCnt=1;
+#else
                         operandA=currentTestCounter&0xFFFF;
                         operandB=(currentTestCounter>>16)&0xFF;
                         cIn=(currentTestCounter>>24)&1;
+#endif
                     }
                     else
                     {
-/*                        operandA=0x81;
-                        operandB=0x19;
-                        currentTestCnt=1;
-*/
                         operandA=currentTestCounter&0xFF;
                         operandB=(currentTestCounter>>8)&0xFF;
                         cIn=(currentTestCounter>>16)&1;
@@ -3237,7 +3252,12 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                 if (!ok)
                 {
                     if (byteMode)
-                        printf("\nERROR %s %02X,%02X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
+                    {
+                        if (testArray[testPos*TEST_MULT+5]==(const char*)6)
+                            printf("\nERROR %s %04X,%02X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
+                        else
+                            printf("\nERROR %s %02X,%02X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
+                    }
                     else
                     {
                         if (testArray[testPos*TEST_MULT+5]==(const char*)5)
@@ -3245,9 +3265,9 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                         else
                             printf("\nERROR %s %04X,%04X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
                     }
-                    testState=99;
+                    //testState=99;
                 }
-                else
+                //else
                 {
                     if (currentTestCnt<=65536)
                     {

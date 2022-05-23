@@ -81,23 +81,21 @@ assign OperationCmp     = {16{Operation [3] & Operation [2] & Operation [1] & Op
 
 assign Ai = 
             ( ( A)  & OperationPassA )  |
-            ( (~A)  & OperationNotA )  |
             ( ( A)  & (OperationIncA | OperationDecA | OperationIncA2 | OperationDecA2) )  |
-            ( ( 0)  & OperationNeg)  |
+            ( ( 0)  & (OperationNeg | OperationNotA) ) |
             ( ( A)  & (OperationAdd | OperationOr | OperationAdc | OperationSbb | OperationAnd | OperationSub | OperationXor | OperationCmp) );
 
 assign Bi = 
             ( ( 0)  & OperationPassA )  |
-            ( ( 0)  & OperationNotA )  |
             ( ( 1)  & OperationIncA )  |
             ( (~1)  & OperationDecA )  |
             ( ( 2)  & OperationIncA2 )  |
             ( (~2)  & OperationDecA2 )  |
-            ( (~A)  & OperationNeg ) |
+            ( (~A)  & (OperationNeg | OperationNotA)) |
             ( ( B)  & (OperationAdd | OperationOr | OperationAdc | OperationAnd | OperationXor)) |
             ( (~B)  & (OperationSbb | OperationSub | OperationCmp) );
 
-assign op2Inv = (OperationDecA[0] | OperationDecA2[0] | OperationSbb[0] | OperationSub[0] | OperationCmp[0] | OperationNeg[0]);
+assign op2Inv = (OperationDecA[0] | OperationDecA2[0] | OperationSbb[0] | OperationSub[0] | OperationCmp[0] | OperationNeg[0] );
 assign opHasCarry = OperationAdc[0] | OperationSbb[0];
 assign clearOC = OperationAnd[0] | OperationOr[0] | OperationXor[0];
 
