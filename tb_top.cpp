@@ -2316,6 +2316,8 @@ const char* testArray[]={
     "1111011W MM111mmm llllllll hhhhhhhh ",                     (const char*)ValidateIDivRM,                    (const char*)RegisterNum,       (const char*)0,           // idiv rm 
     "1111011W MM111mmm llllllll hhhhhhhh ",                     (const char*)ValidateIDivRM,                    (const char*)RegisterNum2,      (const char*)0,           // idiv rm 
     "1111011W MM111mmm llllllll hhhhhhhh ",                     (const char*)ValidateIDivRM,                    (const char*)RegisterNum3,      (const char*)0,           // idiv rm 
+    "11111000 ",                                                (const char*)ValidateFlagClear,                 (const char*)SetFlags,          (const char*)(FLAG_C),    // clc
+    "11111001 ",                                                (const char*)ValidateFlagSet,                   (const char*)ClearFlags,        (const char*)(FLAG_C),    // stc
 #endif
     // TODO ADD TESTS FOR  : RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], PUSHF, POPF, CBW, LEA r,rm, XCHG AX,rw
     0

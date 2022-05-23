@@ -149,13 +149,13 @@ parameter ALU_OP_SUB = 4'b1101;
 parameter ALU_OP_XOR = 4'b1110;
 parameter ALU_OP_CMP = 4'b1111;
 
-parameter SHIFTER_OP_ROL = 3'b000;
-parameter SHIFTER_OP_ROR = 3'b001;
-parameter SHIFTER_OP_RLC = 3'b010;
-parameter SHIFTER_OP_RRC = 3'b011;
-parameter SHIFTER_OP_SHL = 3'b100;
-parameter SHIFTER_OP_SHR = 3'b101;
-parameter SHIFTER_OP_SAR = 3'b111;
+parameter SHIFTER_OP_ROL = 4'b0000;
+parameter SHIFTER_OP_ROR = 4'b0001;
+parameter SHIFTER_OP_RLC = 4'b0010;
+parameter SHIFTER_OP_RRC = 4'b0011;
+parameter SHIFTER_OP_SHL = 4'b0100;
+parameter SHIFTER_OP_SHR = 4'b0101;
+parameter SHIFTER_OP_SAR = 4'b0111;
 
 
 wire Cond_O, Cond_NO, Cond_C, Cond_AE, Cond_E, Cond_NE, Cond_BE, Cond_A, Cond_S, Cond_NS, Cond_P, Cond_PO, Cond_L, Cond_GE, Cond_LE, Cond_G;
@@ -250,6 +250,16 @@ begin
     else if (inst == 8'b11111101)                        // STD (not microcoded)
     begin
         FLAGS[FLAG_D_IDX]<=1;
+        executionState <= 9'h143;          // RNI
+    end
+    else if (inst == 8'b11111001)                        // STC (not microcoded)
+    begin
+        FLAGS[FLAG_C_IDX]<=1;
+        executionState <= 9'h143;          // RNI
+    end
+    else if (inst == 8'b11111000)                        // CLC (not microcoded)
+    begin
+        FLAGS[FLAG_C_IDX]<=0;
         executionState <= 9'h143;          // RNI
     end
     else if ({inst[7:5],inst[2:0]} == 6'b001110)         // SEGMENT PREFIX
