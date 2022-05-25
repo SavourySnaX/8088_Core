@@ -262,6 +262,11 @@ begin
         FLAGS[FLAG_C_IDX]<=0;
         executionState <= 9'h143;          // RNI
     end
+    else if (inst == 8'b11110101)                        // CMC (not microcoded)
+    begin
+        FLAGS[FLAG_C_IDX]<=~FLAGS[FLAG_C_IDX];
+        executionState <= 9'h143;          // RNI
+    end
     else if ({inst[7:5],inst[2:0]} == 6'b001110)         // SEGMENT PREFIX
         executionState <= 9'h005;
     else if ({inst[7:6],inst[2:1]} == 4'b0010)           // alu A,i
