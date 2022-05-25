@@ -88,6 +88,7 @@ reg         code_M2TmpB;
 reg         code_R2TmpA;
 reg         code_R2TmpB;
 reg         code_M2SR;
+reg         code_M2OPw;
 reg         code_SR2M;
 reg [15:0]  code_FLAGS;
 
@@ -504,6 +505,7 @@ begin
             code_R2TmpA=0;      // Can be merged into a single value ultimately (ie enable bits)
             code_SR2M=0;        // 
             code_M2SR=0;        //
+            code_M2OPw=0;       //
             code_FLAGS=0;
 
 
@@ -927,6 +929,45 @@ begin
                         // MP -> tmpa    
                         tmpa<=BP;
                         executionState<=9'h1f7; //EAOFFSET
+                    end
+
+//024   CD FG I   MNOP R          SP    -> tmpa      1   DEC2  tmpa        ?1111111?.00   PUSH rm
+                9'h024:
+                    begin
+                        // SP->tmpa  DEC2 tmpa
+                        tmpa<=SP;
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_DEC2;   // DEC2
+                        executionState<=9'h025;
+                    end
+//025 A C  F  I  L  OPQRSTU       SIGMA -> IND                                           
+                9'h025:
+                    begin
+                        // SIGMA -> IND
+                        IND<=SIGMA;
+                        executionState<=9'h026;
+                    end
+//026   CDEF  I  L  OPQRSTU       SIGMA -> SP                                            
+                9'h026:
+                    begin
+                        // SIGMA -> SP
+                        SP<=SIGMA;
+                        executionState<=9'h027;
+                    end
+//027  BC  F   J LM O QR TU       M     -> OPR       6   W     DS,P0                     
+                9'h027:
+                    begin
+                        // M -> OPR  DS,P0
+                        code_M2OPw=1;
+                        code_M={1'b1,modrm[2:0]};
+                        indirect<=1;
+                        indirectSeg<=SEG_SS;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=1;
+                        executionState<=9'h1FD; // RNI
                     end
 
 //028   CD FG I   MNOP R          SP    -> tmpa      1   DEC2  tmpa        001010???.00  PUSH rw
@@ -3734,6 +3775,8 @@ begin
                                 5'b11010: begin executionState<=9'h074; end
                                 5'b01100: begin PostEffectiveAddressReturn<=9'h0d8; executionState<=9'h1f6; end      // JMP rm
                                 5'b11100: begin executionState<=9'h0d8; end
+                                5'b01110: begin PostEffectiveAddressReturn<=9'h024; executionState<=9'h1f6; end      // PUSH rm
+                                5'b11110: begin executionState<=9'h024; end
 
                                 default: begin executionState<=9'h1ee; PostEffectiveAddressReturn<=9'h1f3; end
                             endcase
@@ -3932,6 +3975,17 @@ begin
                 else
                 begin
                     tmpa<=ReadFromRegister(code_M[3],code_M[2:0]);
+                end
+            end
+            if (code_M2OPw)
+            begin
+                if (modrm[7:6]!=2'b11)
+                begin
+                    OPRw<=code_M[3]?OPRr:{{8{OPRr[7]}},OPRr[7:0]};
+                end
+                else
+                begin
+                    OPRw<=ReadFromRegister(code_M[3],code_M[2:0]);
                 end
             end
             if (code_R2TmpB)

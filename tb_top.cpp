@@ -2095,6 +2095,52 @@ int ValidateJmpRM(const char* testData, int counter, int testCnt, int regInitVal
     return 1;
 }
 
+int ValidatePushRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,1,mod,99,RM,dispL,dispH);
+    
+    // Special case for SP
+    if (mod==3 && RM==ERegisterNum::SP)
+    {
+        opAValue-=2;    // Because SP will be decremented before being pushed
+    }
+
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchWrittenMemory(1,ss, sp);
+
+    // opAValue should be on stack
+    if (opAValue != stackValue)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", opAValue, stackValue);
+        return 0;
+    }
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 less
+    if (sp!=isp-2)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp-2, sp);
+        return 0;
+    }
+
+    return 1;
+}
+
 int ValidateDivRM(const char* testData, int counter, int testCnt, int regInitVal)
 {
     int word = Extract(testData,'W',counter,testCnt);
@@ -2320,6 +2366,7 @@ const char* testArray[]={
     "11111001 ",                                                (const char*)ValidateFlagSet,                   (const char*)ClearFlags,        (const char*)(FLAG_C),    // stc
     "11110101 ",                                                (const char*)ValidateFlagSet,                   (const char*)ClearFlags,        (const char*)(FLAG_C),    // cmc
     "11110101 ",                                                (const char*)ValidateFlagClear,                 (const char*)SetFlags,          (const char*)(FLAG_C),    // cmc
+    "11111111 MM110mmm llllllll hhhhhhhh ",                     (const char*)ValidatePushRM,                    (const char*)RegisterNum,       (const char*)0,           // push rm
 #endif
     // TODO ADD TESTS FOR  : RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], PUSHF, POPF, CBW, LEA r,rm, XCHG AX,rw
     0
