@@ -87,8 +87,9 @@ reg         code_M2TmpA;
 reg         code_M2TmpB;
 reg         code_R2TmpA;
 reg         code_R2TmpB;
-reg         code_M2SR;
 reg         code_M2OPw;
+reg         code_OPr2M;
+reg         code_M2SR;
 reg         code_SR2M;
 reg [15:0]  code_FLAGS;
 
@@ -284,6 +285,11 @@ begin
         executionState <= 9'h006;
     else if (inst[7:4] == 4'b0111)                       // Jcond
         executionState <= 9'h0e8;
+    else if (inst[7:0] == 8'b10001111)                   // 8F prefixed POP rm
+    begin
+        instruction[1]<=0;                               // acts as if direction is 0
+        executionState <= 9'h1ed;
+    end
     else if (inst[7:1] == 7'b1111111)                    // FE/FF prefixed INC/DEC rm
     begin
         executionState <= 9'h1f3;
@@ -506,6 +512,7 @@ begin
             code_SR2M=0;        // 
             code_M2SR=0;        //
             code_M2OPw=0;       //
+            code_OPr2M=0;       //
             code_FLAGS=0;
 
 
@@ -1124,7 +1131,7 @@ begin
 //038 A C  FG I  LM    R          SP    -> IND       6   R     DS,P2       0000??111.00  POP sr
                 9'h038:
                     begin
-                        // SP -> IND
+                        // SP -> IND    R     DS,P2
                         IND<=SP;
                         indirect<=1;
                         indirectSeg<=SEG_SS;
@@ -1153,7 +1160,7 @@ begin
 //03c A C  FG I  LM    R          SP    -> IND       6   R     DS,P2       010011101.00  POPF
                 9'h03C:
                     begin
-                        // SP -> IND
+                        // SP -> IND    R     DS,P2
                         IND<=SP;
                         indirect<=1;
                         indirectSeg<=SEG_SS;
@@ -1178,6 +1185,70 @@ begin
                         executionState<=9'h1fd;  // RNI
                     end
 //03f                                                                  
+
+//040   CD   HI  L  OPQRSTU       IND   -> tmpa                            010001111.00  POP rmw
+                9'h040:
+                    begin
+                        tmpa<=IND;
+                        executionState<=9'h041;
+                    end
+//041 A C  FG I  LM    R          SP    -> IND       6   R     DS,P2                     
+                9'h041:
+                    begin
+                        // SP -> IND    R     DS,P2
+                        IND<=SP;
+                        indirect<=1;
+                        indirectSeg<=SEG_SS;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h042;
+                    end
+//042   CDE  HI  L  OPQRSTU       IND   -> SP                                            
+                9'h042:
+                    begin
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            SP<=IND+2;
+                            executionState<=9'h043; 
+                        end
+                    end
+//043 A C   G I  L  OPQR  U       tmpa  -> IND       4   none  WB,NX                     
+                9'h043:
+                    begin
+                        // tmpa -> IND
+                        IND<=tmpa;
+                        executionState<=9'h044;
+                    end
+
+//044  B  E   IJ L  OPQR          OPR   -> M         4   none  RNI         010001111.01  
+                9'h044:
+                    begin
+                        // OPR -> M   RNI
+                        code_M={1'b1,modrm[2:0]};
+                        code_OPr2M=1;
+                        if (modrm[7:6]==2'b11)
+                            executionState<=9'h1FD;
+                        else
+                            executionState<=9'h045;
+                    end
+//045 ABC  F HI  LM O QRSTU                          6   W     DD,P0                     
+                9'h045:
+                    begin
+                        // DD,P0  (DS with override)
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=1'b1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=1;
+                        executionState<=9'h1FD; // RNI
+                    end
+//046                                                                                    
+//047                                                                                    
+//048                                                                                    
+//049                                                                                    
+//04a                                                                                    
+//04b                                                                  
 
 //050 A CD F   J  MN   R TU       M     -> tmpb      1   XI    tmpb, NX    ?11110011.00   NEG rm
                 9'h050:
@@ -3706,12 +3777,30 @@ begin
                         executionState<=9'h1FD;     // RNI
                     end
 
+//1ed (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. POP...)  prefix 8F
+                9'h1ED:
+                    begin
+                        // Q -> MODRM
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            modrm[7:0]<=prefetchTop;
+                            readTop<=1;
+
+                            case ({prefetchTop[7]&prefetchTop[6],prefetchTop[5:3]})
+                                // 8F 
+                                4'b0000: begin PostEffectiveAddressReturn<=9'h040; executionState<=9'h1f6; end      // POP rm
+                                4'b1000: begin executionState<=9'h040; end
+
+                                default: begin executionState<=9'h1ee; PostEffectiveAddressReturn<=9'h1f3; end
+                            endcase
+                        end
+                    end
 //1ee (NOT REAL mOP) Hang CPU FOR NOW
                 9'h1EE:
                     begin
                     end
 
-//1ef (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. TEST,NEG,MUL)
+//1ef (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. TEST,NEG,MUL)  prefix F6/F7
                 9'h1EF:
                     begin
                         // Q -> MODRM
@@ -3750,7 +3839,7 @@ begin
                         end
                     end
 
-//1f3 (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. INC/DEC...)
+//1f3 (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. INC/DEC...)   prefix FE/FF
                 9'h1F3:
                     begin
                         // Q -> MODRM
@@ -3934,6 +4023,17 @@ begin
                 else
                 begin
                     WriteToRegister(code_M[3],code_M[2:0],tmpb);
+                end
+            end
+            if (code_OPr2M)
+            begin
+                if (modrm[7:6]!=2'b11)
+                begin
+                    OPRw<=OPRr;
+                end
+                else
+                begin
+                    WriteToRegister(code_M[3],code_M[2:0],OPRr);
                 end
             end
             if (code_TmpB2R)

@@ -2141,6 +2141,46 @@ int ValidatePushRM(const char* testData, int counter, int testCnt, int regInitVa
     return 1;
 }
 
+int ValidatePopRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchReadMemory(1,iss, isp);
+
+    int opAValue = FetchDestValue(0,1,mod,99,RM,dispL,dispH);
+    
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 more (unless popping SP)
+    if (sp!=isp+2 && !(mod==3 && RM==ERegisterNum::SP))
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp+2, sp);
+        return 0;
+    }
+
+    if (opAValue != stackValue)
+    {
+        printf("Register Mismatch %04X != %04X\n", opAValue, stackValue);
+        return 0;
+    }
+
+    return 1;
+}
+
 int ValidateDivRM(const char* testData, int counter, int testCnt, int regInitVal)
 {
     int word = Extract(testData,'W',counter,testCnt);
@@ -2367,6 +2407,7 @@ const char* testArray[]={
     "11110101 ",                                                (const char*)ValidateFlagSet,                   (const char*)ClearFlags,        (const char*)(FLAG_C),    // cmc
     "11110101 ",                                                (const char*)ValidateFlagClear,                 (const char*)SetFlags,          (const char*)(FLAG_C),    // cmc
     "11111111 MM110mmm llllllll hhhhhhhh ",                     (const char*)ValidatePushRM,                    (const char*)RegisterNum,       (const char*)0,           // push rm
+    "10001111 MM000mmm llllllll hhhhhhhh ",                     (const char*)ValidatePopRM,                     (const char*)RegisterNum,       (const char*)0,           // pop rm
 #endif
     // TODO ADD TESTS FOR  : RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], PUSHF, POPF, CBW, LEA r,rm, XCHG AX,rw
     0
