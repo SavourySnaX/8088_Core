@@ -484,11 +484,25 @@ void RegisterNum3(int regInitVal)
     LoadRegisters();
 }
 
+void RegisterNumAX(int regInitVal)
+{
+    RegisterNum(regInitVal);
+    tb->top->eu->AX=regInitVal;
+    initialRegisters[ERegisterNum::AX]=regInitVal;
+}
+
 void RegisterNumCX(int regInitVal)
 {
     RegisterNum(regInitVal);
     tb->top->eu->CX=regInitVal;
     initialRegisters[ERegisterNum::CX]=regInitVal;
+}
+
+void RegisterNumSP(int regInitVal)
+{
+    RegisterNum(regInitVal);
+    tb->top->eu->SP=regInitVal;
+    initialRegisters[ERegisterNum::SP]=regInitVal;
 }
 
 void RegisterNumCXCarry(int regInitVal)
@@ -2307,6 +2321,352 @@ int ValidateIDivRM(const char* testData, int counter, int testCnt, int regInitVa
     }
 }
 
+int ValidateMovAXmem(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int direction = Extract(testData,'D',counter,testCnt);
+    int offL = Extract(testData,'L', counter, testCnt);
+    int offH = Extract(testData,'H', counter, testCnt);
+    int seg = FetchInitialSR(segOverride);
+    int off = (offH<<8)|offL;
+
+    if (direction == 0)
+    {
+        int dValue = word ? FetchWordRegister(ERegisterNum::AX) : FetchByteRegister(ERegisterNum::AX);
+        int sValue = FetchReadMemory(word,seg,off);
+        return dValue==sValue;
+    }
+    else
+    {
+        int sValue = word ? RegisterNumInitialWord(ERegisterNum::AX) : RegisterNumInitialByte(ERegisterNum::AX);
+        int dValue = FetchWrittenMemory(word,seg,off);
+        return dValue==sValue;
+    }
+}
+
+int ValidateMovAXmemSegOverride(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int direction = Extract(testData,'D',counter,testCnt);
+    segOverride=Extract(testData,'R',counter,testCnt);
+    int offL = Extract(testData,'L', counter, testCnt);
+    int offH = Extract(testData,'H', counter, testCnt);
+    int seg = FetchInitialSR(segOverride);
+    int off = (offH<<8)|offL;
+
+    if (direction == 0)
+    {
+        int dValue = word ? FetchWordRegister(ERegisterNum::AX) : FetchByteRegister(ERegisterNum::AX);
+        int sValue = FetchReadMemory(word,seg,off);
+        return dValue==sValue;
+    }
+    else
+    {
+        int sValue = word ? RegisterNumInitialWord(ERegisterNum::AX) : RegisterNumInitialByte(ERegisterNum::AX);
+        int dValue = FetchWrittenMemory(word,seg,off);
+        return dValue==sValue;
+    }
+}
+
+int ValidateRet(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = regInitVal;
+    
+    int stackValue = FetchReadMemory(1,iss, isp);
+
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 more
+    if (sp!=((isp+2)&0xFFFF))
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp+2, sp);
+        return 0;
+    }
+
+    if (ip != stackValue)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", stackValue, ip);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidateRetF(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+    int cs = tb->top->biu->REGISTER_CS;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = regInitVal;
+    
+    int stackValueIP = FetchReadMemory(1,iss, isp);
+    int stackValueCS = FetchReadMemory(1,iss, isp+2);
+
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 4 more
+    if (sp!=((isp+4)&0xFFFF))
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp+4, sp);
+        return 0;
+    }
+
+    if (ip != stackValueIP)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", stackValueIP, ip);
+        return 0;
+    }
+    if (cs != stackValueCS)
+    {
+        printf("Code Segment Register Mismatch %04X != %04X\n", stackValueCS, cs);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidateRetRetFImm(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int far = Extract(testData,'F',counter,testCnt);
+    int offL = Extract(testData,'L', counter, testCnt);
+    int offH = Extract(testData,'H', counter, testCnt);
+    int imm = (offH<<8)|offL;
+
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+    int cs = tb->top->biu->REGISTER_CS;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = regInitVal;
+    
+    int stackValueIP = FetchReadMemory(1,iss, isp);
+    int stackValueCS;
+    if (far)
+    {
+        stackValueCS = FetchReadMemory(1,iss, isp+2);
+    }
+
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be imm more
+    if (sp!=((isp+imm+(far?4:2))&0xFFFF))
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp+imm+(far?4:2), sp);
+        return 0;
+    }
+
+    if (ip != stackValueIP)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", stackValueIP, ip);
+        return 0;
+    }
+    if (far)
+    {
+        if (cs != stackValueCS)
+        {
+            printf("Code Segment Register Mismatch %04X != %04X\n", stackValueCS, cs);
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+int ValidateLea(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = regInitVal;
+    int reg = Extract(testData,'R',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int hValue = FetchWordRegister(reg);
+
+    int seg,off;
+    ComputeEffectiveAddress(mod,RM,dispL,dispH, &seg, &off);
+
+    return hValue==off;
+}
+
+int ValidateXchgRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int direction = 1;
+    int mod = Extract(testData,'M',counter,testCnt);
+    int reg = Extract(testData,'R',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int originalLHS = word ? RegisterNumInitialWord(reg) : RegisterNumInitialByte(reg);
+    int finalLHS = FetchDestValue(direction,word,mod,reg,RM,dispL,dispH);
+    int originalRHS;
+    int finalRHS;
+    if (mod != 3)
+    {
+        int seg,off;
+        ComputeEffectiveAddress(mod,RM,dispL,dispH, &seg, &off);
+
+        originalRHS = FetchReadMemory(word,seg,off);
+        finalRHS = FetchWrittenMemory(word,seg,off);
+    }
+    else
+    {
+        originalRHS = word ? RegisterNumInitialWord(RM) : RegisterNumInitialByte(RM);
+        finalRHS = word ? FetchWordRegister(RM) : FetchByteRegister(RM);
+    }
+
+    return originalLHS==finalRHS && originalRHS==finalLHS;
+}
+
+int ValidateXchgAXrw(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int reg = Extract(testData,'R',counter,testCnt);
+
+    int originalLHS = RegisterNumInitialWord(ERegisterNum::AX);
+    int finalLHS = FetchWordRegister(ERegisterNum::AX);
+    int originalRHS = RegisterNumInitialWord(reg);
+    int finalRHS = FetchWordRegister(reg);
+
+    return originalLHS==finalRHS && originalRHS==finalLHS;
+}
+
+// Need to validate against 8088 for empty bits
+int ValidatePushF(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int opAValue = tb->top->eu->FLAGS;
+    
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchWrittenMemory(1,ss, sp);
+
+    // opAValue should be on stack
+    if (opAValue != stackValue)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", opAValue, stackValue);
+        return 0;
+    }
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 less
+    if (sp!=isp-2)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp-2, sp);
+        return 0;
+    }
+
+    return 1;
+}
+
+// Need to validate against 8088 for empty bits
+int ValidatePopF(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValue = FetchReadMemory(1,iss, isp);
+
+    int opAValue = tb->top->eu->FLAGS;
+    
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 2 more (unless popping SP)
+    if (sp!=((isp+2)&0xFFFF))
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp+2, sp);
+        return 0;
+    }
+
+    if (opAValue != stackValue)
+    {
+        printf("Register Mismatch %04X != %04X\n", opAValue, stackValue);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidateCBW(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int8_t al = RegisterNumInitialByte(ERegisterNum::AX);
+    int expected = al;
+    expected&=0xFFFF;
+    int ax = FetchWordRegister(ERegisterNum::AX);
+
+    return expected == ax;
+}
+
+int ValidateCWD(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int16_t i = RegisterNumInitialWord(ERegisterNum::AX);
+    int expected = i;
+    int expectedAX=expected&0xFFFF;
+    int expectedDX=(expected>>16)&0xFFFF;
+    int ax = FetchWordRegister(ERegisterNum::AX);
+    int dx = FetchWordRegister(ERegisterNum::DX);
+    printf("%04X %04X\n",expectedAX,ax);
+    printf("%04X %04X\n",expectedDX,dx);
+
+    return expectedAX == ax && expectedDX == dx;
+}
+
+int ValidateNotRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+
+    int hValue = FetchDestValue(0,word,mod,99,RM,dispL,dispH);
+    
+    if (word)
+        return ((~opAValue)&0xFFFF) == hValue;
+
+    return ((~opAValue)&0xFF) == hValue;
+}
+
+
 #define TEST_MULT 4
 
 const char* testArray[]={ 
@@ -2408,8 +2768,49 @@ const char* testArray[]={
     "11110101 ",                                                (const char*)ValidateFlagClear,                 (const char*)SetFlags,          (const char*)(FLAG_C),    // cmc
     "11111111 MM110mmm llllllll hhhhhhhh ",                     (const char*)ValidatePushRM,                    (const char*)RegisterNum,       (const char*)0,           // push rm
     "10001111 MM000mmm llllllll hhhhhhhh ",                     (const char*)ValidatePopRM,                     (const char*)RegisterNum,       (const char*)0,           // pop rm
+    "101000DW LLLLLLLL HHHHHHHH ",                              (const char*)ValidateMovAXmem,                  (const char*)RegisterNum,       (const char*)0,           // MOV A,[i] & MOV [i],A
+    "001RR110 101000DW LLLLLLLL HHHHHHHH ",                     (const char*)ValidateMovAXmemSegOverride,       (const char*)RegisterNum,       (const char*)0,           // segment prefix MOV A,[i] & MOV [i],A
+    "11000011 ",                                                (const char*)ValidateRet,                       (const char*)RegisterNumSP,     (const char*)0,           // ret
+    "11000011 ",                                                (const char*)ValidateRet,                       (const char*)RegisterNumSP,     (const char*)0x8000,      // ret
+    "11000011 ",                                                (const char*)ValidateRet,                       (const char*)RegisterNumSP,     (const char*)0xFFFF,      // ret
+    "11000011 ",                                                (const char*)ValidateRet,                       (const char*)RegisterNumSP,     (const char*)0x1010,      // ret
+    "11000011 ",                                                (const char*)ValidateRet,                       (const char*)RegisterNumSP,     (const char*)0x9090,      // ret
+    "11001011 ",                                                (const char*)ValidateRetF,                      (const char*)RegisterNumSP,     (const char*)0,           // retf
+    "11001011 ",                                                (const char*)ValidateRetF,                      (const char*)RegisterNumSP,     (const char*)0x8000,      // retf
+    "11001011 ",                                                (const char*)ValidateRetF,                      (const char*)RegisterNumSP,     (const char*)0xFFFF,      // retf
+    "11001011 ",                                                (const char*)ValidateRetF,                      (const char*)RegisterNumSP,     (const char*)0x1010,      // retf
+    "11001011 ",                                                (const char*)ValidateRetF,                      (const char*)RegisterNumSP,     (const char*)0x9090,      // retf
+    "1100F010 LLLLLLLL HHHHHHHH ",                              (const char*)ValidateRetRetFImm,                (const char*)RegisterNumSP,     (const char*)0,           // ret/retf iw
+    "1100F010 LLLLLLLL HHHHHHHH ",                              (const char*)ValidateRetRetFImm,                (const char*)RegisterNumSP,     (const char*)0x8000,      // ret/retf iw
+    "1100F010 LLLLLLLL HHHHHHHH ",                              (const char*)ValidateRetRetFImm,                (const char*)RegisterNumSP,     (const char*)0xFFFF,      // ret/retf iw
+    "1100F010 LLLLLLLL HHHHHHHH ",                              (const char*)ValidateRetRetFImm,                (const char*)RegisterNumSP,     (const char*)0x1010,      // ret/retf iw
+    "1100F010 LLLLLLLL HHHHHHHH ",                              (const char*)ValidateRetRetFImm,                (const char*)RegisterNumSP,     (const char*)0x9090,      // ret/retf iw
+    "10001101 00RRRmmm llllllll hhhhhhhh ",                     (const char*)ValidateLea,                       (const char*)RegisterNum,       (const char*)0,           // lea r,rm
+    "10001101 01RRRmmm llllllll hhhhhhhh ",                     (const char*)ValidateLea,                       (const char*)RegisterNum,       (const char*)1,           // lea r,rm
+    "10001101 10RRRmmm llllllll hhhhhhhh ",                     (const char*)ValidateLea,                       (const char*)RegisterNum,       (const char*)2,           // lea r,rm
+    "1000011W MMRRRmmm llllllll hhhhhhhh ",                     (const char*)ValidateXchgRM,                    (const char*)RegisterNum,       (const char*)0,           // xchg r,rm
+    "10010RRR ",                                                (const char*)ValidateXchgAXrw,                  (const char*)RegisterNum,       (const char*)0,           // xchg AX,rw
+    "10011100 ",                                                (const char*)ValidatePushF,                     (const char*)RegisterNumFlags,  (const char*)(0),               // pushf
+    "10011100 ",                                                (const char*)ValidatePushF,                     (const char*)RegisterNumFlags,  (const char*)(FLAG_C|FLAG_Z),   // pushf
+    "10011100 ",                                                (const char*)ValidatePushF,                     (const char*)RegisterNumFlags,  (const char*)(0xFFFF),          // pushf
+    "10011101 ",                                                (const char*)ValidatePopF,                      (const char*)RegisterNumSP,     (const char*)(0),          // popf
+    "10011101 ",                                                (const char*)ValidatePopF,                      (const char*)RegisterNumSP,     (const char*)(0x8000),     // popf
+    "10011101 ",                                                (const char*)ValidatePopF,                      (const char*)RegisterNumSP,     (const char*)(0xFFFF),     // popf
+    "10011101 ",                                                (const char*)ValidatePopF,                      (const char*)RegisterNumSP,     (const char*)(0x1010),     // popf
+    "10011101 ",                                                (const char*)ValidatePopF,                      (const char*)RegisterNumSP,     (const char*)(0x9090),     // popf
+    "10011000 ",                                                (const char*)ValidateCBW,                       (const char*)RegisterNumAX,     (const char*)(0x0000),     // cbw
+    "10011000 ",                                                (const char*)ValidateCBW,                       (const char*)RegisterNumAX,     (const char*)(0x0001),     // cbw
+    "10011000 ",                                                (const char*)ValidateCBW,                       (const char*)RegisterNumAX,     (const char*)(0x9900),     // cbw
+    "10011000 ",                                                (const char*)ValidateCBW,                       (const char*)RegisterNumAX,     (const char*)(0x0080),     // cbw
+    "10011000 ",                                                (const char*)ValidateCBW,                       (const char*)RegisterNumAX,     (const char*)(0x00FF),     // cbw
+    "10011001 ",                                                (const char*)ValidateCWD,                       (const char*)RegisterNumAX,     (const char*)(0x0000),     // cwd
+    "10011001 ",                                                (const char*)ValidateCWD,                       (const char*)RegisterNumAX,     (const char*)(0x0001),     // cwd
+    "10011001 ",                                                (const char*)ValidateCWD,                       (const char*)RegisterNumAX,     (const char*)(0x9999),     // cwd
+    "10011001 ",                                                (const char*)ValidateCWD,                       (const char*)RegisterNumAX,     (const char*)(0x8000),     // cwd
+    "10011001 ",                                                (const char*)ValidateCWD,                       (const char*)RegisterNumAX,     (const char*)(0xFFFF),     // cwd
+    "1111011W MM010mmm llllllll hhhhhhhh ",                     (const char*)ValidateNotRM,                     (const char*)RegisterNum,       (const char*)0,            // not rm
 #endif
-    // TODO ADD TESTS FOR  : RET, MOV [i],A, XCHG rm,r, HLT, irq, MOV A,[i], PUSHF, POPF, CBW, LEA r,rm, XCHG AX,rw
+    // TODO ADD TESTS FOR  : IRET, HLT, irq
     0
 };
 
