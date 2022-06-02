@@ -6,6 +6,6 @@ This is my development branch and thus contains the testbenches I use to verify 
 Don't expect the makefile to just work.
 
 Microcode Translation state :
-376 / 512 slots translated
+392 / 512 slots translated
 
 
