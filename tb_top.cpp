@@ -2642,8 +2642,6 @@ int ValidateCWD(const char* testData, int counter, int testCnt, int regInitVal)
     int expectedDX=(expected>>16)&0xFFFF;
     int ax = FetchWordRegister(ERegisterNum::AX);
     int dx = FetchWordRegister(ERegisterNum::DX);
-    printf("%04X %04X\n",expectedAX,ax);
-    printf("%04X %04X\n",expectedDX,dx);
 
     return expectedAX == ax && expectedDX == dx;
 }
@@ -2867,6 +2865,93 @@ int ValidateSALC(const char* testData, int counter, int testCnt, int regInitVal)
     return FetchByteRegister(ERegisterNum::AX)==0x00;
 }
 
+int ValidateInADX(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int address = FetchWordRegister(ERegisterNum::DX);
+    if (readWriteLatchedAddress[captureIdx]!=address)
+    {
+        printf("Failed - first Address Read != expected (%08X)!=(%08X)\n", readWriteLatchedAddress[captureIdx],address);
+        return 0;
+    }
+    if (readWriteLatchedType[captureIdx]!=0)
+    {
+        printf("Failed - first Address Read != IO (%d)!=(%d)\n", readWriteLatchedType[captureIdx],0);
+        return 0;
+    }
+    if (lastReadCapture[captureIdx]!=(tb->top->eu->AX&0xFF))
+    {
+        printf("Failed - first Byte Read != (expected) (%02X)!=(%02X)\n", lastWriteCapture[captureIdx],(tb->top->eu->AX&0xFF));
+        return 0;
+    }
+    captureIdx++;
+    if (word)
+    {
+        if (readWriteLatchedAddress[captureIdx]!=address+1)
+        {
+            printf("Failed - second Address Read != expected (%08X)!=(%08X)\n", readWriteLatchedAddress[captureIdx],address+1);
+            return 0;
+        }
+        if (readWriteLatchedType[captureIdx]!=0)
+        {
+            printf("Failed - second Address Read != IO (%d)!=(%d)\n", readWriteLatchedType[captureIdx],0);
+            return 0;
+        }
+        if (lastReadCapture[captureIdx]!=(tb->top->eu->AX>>8))
+        {
+            printf("Failed - second Byte Read != (expected) (%02X)!=(%02X)\n", lastWriteCapture[captureIdx],(tb->top->eu->AX>>8));
+            return 0;
+        }
+        captureIdx++;
+    }
+
+    return 1;
+}
+
+int ValidateOutADX(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int address = FetchWordRegister(ERegisterNum::DX);
+
+    if (readWriteLatchedAddress[captureIdx]!=address)
+    {
+        printf("Failed - first Address Written != expected (%08X)!=(%08X)\n", readWriteLatchedAddress[captureIdx],address);
+        return 0;
+    }
+    if (readWriteLatchedType[captureIdx]!=0)
+    {
+        printf("Failed - first Address Written != IO (%d)!=(%d)\n", readWriteLatchedType[captureIdx],0);
+        return 0;
+    }
+    if (lastWriteCapture[captureIdx]!=(regInitVal&0xFF))
+    {
+        printf("Failed - first Byte Written != (expected) (%02X)!=(%02X)\n", lastWriteCapture[captureIdx],regInitVal&0xFF);
+        return 0;
+    }
+    captureIdx++;
+    if (word)
+    {
+        if (readWriteLatchedAddress[captureIdx]!=address+1)
+        {
+            printf("Failed - second Address Written != expected (%08X)!=(%08X)\n", readWriteLatchedAddress[captureIdx],address+1);
+            return 0;
+        }
+        if (readWriteLatchedType[captureIdx]!=0)
+        {
+            printf("Failed - second Address Written != IO (%d)!=(%d)\n", readWriteLatchedType[captureIdx],0);
+            return 0;
+        }
+        if (lastWriteCapture[captureIdx]!=(regInitVal>>8))
+        {
+            printf("Failed - second Byte Written != (expected) (%02X)!=(%02X)\n", lastWriteCapture[captureIdx],regInitVal>>8);
+            return 0;
+        }
+        captureIdx++;
+    }
+
+    return 1;
+}
+
 
 #define TEST_MULT 4
 
@@ -3022,6 +3107,10 @@ const char* testArray[]={
     "1000010W MMRRRmmm llllllll hhhhhhhh ",                     (const char*)ValidateTestRM,                    (const char*)RegisterNum,       (const char*)0,           // test rm,r
     "11010110 ",                                                (const char*)ValidateSALC,                      (const char*)SetFlags,          (const char*)FLAG_C,      // SALC (carry set)
     "11010110 ",                                                (const char*)ValidateSALC,                      (const char*)ClearFlags,        (const char*)0xFFFF,      // SALC (carry clear)
+    "1110110W ",                                                (const char*)ValidateInADX,                     (const char*)DefaultTestInit,   (const char*)0x0000,      // in al/ax,DX
+    "1110110W ",                                                (const char*)ValidateInADX,                     (const char*)DefaultTestInit,   (const char*)0x1234,      // in al/ax,DX
+    "1110111W ",                                                (const char*)ValidateOutADX,                    (const char*)DefaultTestInit,   (const char*)0x0000,      // out DX, al/ax
+    "1110111W ",                                                (const char*)ValidateOutADX,                    (const char*)DefaultTestInit,   (const char*)0x1234,      // out DX, al/ax
 #endif
     // TODO ADD TESTS FOR  : HLT, irq
     0

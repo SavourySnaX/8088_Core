@@ -227,6 +227,10 @@ begin
         PostEffectiveAddressReturn <= 9'h0EC;
         executionState <= 9'h1f5;
     end
+    else if (inst[7:1] == 7'b1110111)                    // OUT DX, AL/AX
+        executionState <= 9'h0B8;
+    else if (inst[7:1] == 7'b1110110)                    // IN AL/AX, DX
+        executionState <= 9'h0B4;
     else if (inst[7:1] == 7'b1110011)                    // OUT ib, AL/AX
         executionState <= 9'h0B0;
     else if (inst[7:1] == 7'b1110010)                    // IN AL/AX, ib
@@ -2237,6 +2241,55 @@ begin
                         ind_readWrite<=1;
                         executionState<=9'h1fd; // RNI
                     end
+
+//0b4 A C  FG  J LM     STU       DE    -> IND       6   R     D0,P0       01110110?.00  IN A,DX
+                9'h0B4:
+                    begin
+                        // DE -> IND    R D0,P0
+                        IND<=DX;
+                        indirect<=1;
+                        indirectSeg<=SEG_ZERO;
+                        ind_byteWord<=1;
+                        ind_ioMreq<=0;
+                        ind_readWrite<=0;
+                        executionState<=9'h0b5;
+                    end
+//0b5  B  E   IJ L  OPQR          OPR   -> M         4   none  RNI                       
+                9'h0B5:
+                    begin
+                        // OPR->M  RNI
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            if (instruction[0])
+                                AX<=OPRr;
+                            else
+                                AX[7:0]<=OPRr[7:0];
+                            executionState<=9'h1fd; // RNI
+                        end
+                    end
+//0b6                                                                                    
+//0b7                                                                                    
+//0b8 A C  FG  J L  OPQRSTU       DE    -> IND                             01110111?.00  OUT DX,A
+                9'h0B8:
+                    begin
+                        // DE -> IND
+                        IND<=DX;
+                        executionState<=9'h0b9;
+                    end
+//0b9  BC  FG    LM O Q STU       XA    -> OPR       6   W     D0,P0                     
+                9'h0B9:
+                    begin
+                        // XA -> OPR   D0,P0
+                        OPRw<=AX;
+                        indirect<=1;
+                        indirectSeg<=SEG_ZERO;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=0;
+                        ind_readWrite<=1;
+                        executionState<=9'h1fd; // RNI
+                    end
+//0ba                                                                                    
+//0bb                                                                                    
 
 //0bc A C  FG I  LM    R          SP    -> IND       6   R     DS,P2       0110000?1.00  RET
                 9'h0BC:
