@@ -2568,6 +2568,53 @@ begin
                         flush<=1;   // FLUSH (and resumes prefetch queue)
                         executionState<=9'h1fd; // RNI
                     end
+//0da                                                                                    
+//0db                                                                                    
+
+//0dc  BCD   HI   MNOP  S         IND   -> tmpc      1   INC2  tmpc        ?11111101.00   JMP FAR rm
+                9'h0DC:
+                    begin
+                        // IND->tmpc  INC2 tmpc
+                        tmpc<=IND;
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpC
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_INC2;   // INC2
+                        executionState<=9'h0dd;
+                    end
+//0dd A C  F  I  L  OPQR TU       SIGMA -> IND       4   none  SUSP                      
+                9'h0DD:
+                    begin
+                        // SIGMA->IND  SUSP
+                        IND<=SIGMA;
+                        suspend<=1;
+                        executionState<=9'h0de;
+                    end
+//0de   C   GHI  LM    RSTU       tmpb  -> PC        6   R     DD,P0
+                9'h0DE:
+                    begin
+                        // tmpb->PC R DD,P0
+                        UpdateReg<=tmpb;
+                        latchPC<=1;
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h0df;
+                    end
+//0df A       IJ L     R          OPR   -> RC        4   FLUSH RNI           
+                9'h0DF:
+                    begin
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            // OPR->RC  FLUSH RNI
+                            UpdateReg<=OPRr;
+                            latchCS<=1;
+                            flush<=1;   // FLUSH (and resumes prefetch queue)
+                            executionState<=9'h1fd; // RNI
+                        end
+                    end
 
 //0e0 A C E  HIJ L  OPQRSTU       Q     -> tmpbL                           011101010.00  JMP cd
                 9'h0E0:
@@ -4263,6 +4310,8 @@ begin
                                 5'b11011: begin executionState<=9'h068; end
                                 5'b01100: begin PostEffectiveAddressReturn<=9'h0d8; executionState<=9'h1f6; end      // JMP rm
                                 5'b11100: begin executionState<=9'h0d8; end
+                                5'b01101: begin PostEffectiveAddressReturn<=9'h0dc; executionState<=9'h1f6; end      // JMP FAR rm
+                                5'b11101: begin executionState<=9'h0dc; end
                                 5'b01110: begin PostEffectiveAddressReturn<=9'h024; executionState<=9'h1f6; end      // PUSH rm
                                 5'b11110: begin executionState<=9'h024; end
 

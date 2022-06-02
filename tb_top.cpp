@@ -2837,6 +2837,55 @@ int ValidateCallFarRM(const char* testData, int counter, int testCnt, int regIni
     return 1;
 }
 
+int ValidateJmpFarRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = regInitVal;
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'L', counter, testCnt);
+    int dispH = Extract(testData,'H', counter, testCnt);
+
+    int instructionLength = 1 + FetchModRMLength(1,1,mod,99,RM);
+
+    int seg,off;
+    ComputeEffectiveAddress(mod,RM,dispL,dispH,&seg,&off);
+
+    int expectedip = FetchReadMemory(1,seg,off);
+    int expectedcs = FetchReadMemory(1,seg,off+2);
+
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int cs = tb->top->biu->REGISTER_CS;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = FetchWordRegister(ERegisterNum::SP);
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    // Stack should not change
+    if (sp!=isp)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp, sp);
+        return 0;
+    }
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    if (cs!=expectedcs)
+    {
+        printf("Code Segment Register Mismatch %04X != %04X\n", expectedcs, cs);
+        return 0;
+    }
+
+    if (ip != expectedip)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", expectedip, ip);
+        return 0;
+    }
+
+    return 1;
+}
+
+
 int ValidateTestRM(const char* testData, int counter, int testCnt, int regInitVal)
 {
     int word = Extract(testData,'W',counter,testCnt);
@@ -3111,6 +3160,9 @@ const char* testArray[]={
     "1110110W ",                                                (const char*)ValidateInADX,                     (const char*)DefaultTestInit,   (const char*)0x1234,      // in al/ax,DX
     "1110111W ",                                                (const char*)ValidateOutADX,                    (const char*)DefaultTestInit,   (const char*)0x0000,      // out DX, al/ax
     "1110111W ",                                                (const char*)ValidateOutADX,                    (const char*)DefaultTestInit,   (const char*)0x1234,      // out DX, al/ax
+    "11111111 00101mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateJmpFarRM,                  (const char*)RegisterNum,       (const char*)0,           // jmp FAR rm (mod 0)
+    "11111111 01101mmm LLLLLLLL ",                              (const char*)ValidateJmpFarRM,                  (const char*)RegisterNum,       (const char*)1,           // jmp FAR rm (mod 1)
+    "11111111 10101mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateJmpFarRM,                  (const char*)RegisterNum,       (const char*)2,           // jmp FAR rm (mod 2)
 #endif
     // TODO ADD TESTS FOR  : HLT, irq
     0
