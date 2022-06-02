@@ -30,7 +30,7 @@ trace.vcd: ./obj_dir/V$(MODULE)
 .stamp.verilate: $(MODULE).v tb_$(MODULE).cpp
 	@echo
 	@echo "### VERILATING ###"
-	verilator -y 8088 --Wno-UNOPTFLAT --Wno-WIDTH --Wno-IMPLICIT --trace -cc $(MODULE).v --exe tb_$(MODULE).cpp testing_x86.cpp
+	verilator -y 8088 --Wno-UNOPTFLAT --Wno-WIDTH --Wno-IMPLICIT --trace -cc $(MODULE).v --exe tb_$(MODULE).cpp testing_x86.cpp tb_top_wait_irq.cpp tb_top_arith_tests.cpp
 #	verilator -Wall --trace -cc $(MODULE).v --exe tb_$(MODULE).cpp
 	@touch .stamp.verilate
 

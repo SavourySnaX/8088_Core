@@ -13,6 +13,7 @@ module execution
     input indirectBusOpInProgress,
     input suspending,
     input irqPending,
+    input wait_n,
 
     input [15:0]        REGISTER_IP,
     input [15:0]        REGISTER_ES,
@@ -354,6 +355,8 @@ begin
         executionState <= 9'h0c8;
         delayedI<=1;
     end
+    else if (inst[7:0] == 8'b10011011)                    // WAIT
+        executionState <= 9'h0f8;
     else if (inst[7:0] == 8'b11110100)                    // HLT
         executionState <= 9'h1fb;
     else if (inst[7:0] == 8'b10011100)                    // PUSHF
@@ -400,7 +403,7 @@ begin
     begin
         executionState <= 9'h1ee;
         PostEffectiveAddressReturn <= {1'b0,inst};
-        $displayb("UNKNOWN INSTRUCTION %b\n",inst);
+        $display("UNKNOWN INSTRUCTION %b\n",inst);
     end
 end
 endtask
@@ -2861,6 +2864,43 @@ begin
                         end
                     end
 
+//0f8 ABC  F HI     O Q  TU                          0   TEST     3        010011011.00  WAIT
+                9'h0F8:
+                    begin
+                        // TEST 3
+                        if (wait_n==1)
+                            executionState<=9'h0fb;
+                        else
+                            executionState<=9'h0f9;
+                    end
+//0f9 ABC  F HI  L  O   STU                          4   [ 1]  none                      
+                9'h0F9:
+                    begin
+                        // [ 1]
+                        executionState<=9'h0fa;
+                    end
+//0fa ABC  F HI  L  OPQR                             4   none  RNI                       
+                9'h0FA:
+                    begin
+                        executionState<=9'h1fd; // RNI
+                    end
+//0fb ABC  F HI    NOP  S U                          0   INT      5                      
+                9'h0FB:
+                    begin
+                        // INT 5
+                        // TODO interrupt check
+                        executionState<=9'h0fc;
+                    end
+//0fc ABC  F HI    N                                 0   UNC      0        010011011.01  
+                9'h0FC:
+                    begin
+                        // UNC 0
+                        executionState<=9'h0f8;
+                    end
+//0fd ABC  F HI  L  OPQR TU                          4   none  SUSP                      
+//0fe ABC  F HI  L  OPQR T                           4   none  CORR                      
+//0ff  BCD    I   MNO  RS         PC    -> tmpc      1   DEC   tmpc   
+
 //112  BCD FGH    MN    S         BC    -> tmpc      1   PASS  tmpc                      RPTS
                 9'h112:
                     begin
@@ -2928,13 +2968,13 @@ begin
 //11e ABCDE  HI    N  Q S U       IND   -> IK        0   NF1      5                      
                 9'h11E:
                     begin
-                        if ((indirectBusOpInProgress)==0) // should we wait here?? or at 11d which would allow better throughput
+                        if ((indirectBusOpInProgress)==0)
                         begin
                             // Adjusted IND value here - probably via BIU originally, for now, just do adjustment directly
                             DI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
                             
                             if (~repeatF)
-                                executionState<= 9'h115;    // ?? unclear exact dest, this seems ok though
+                                executionState<= 9'h115;
                             else
                                 executionState<=9'h11f;
                         end
@@ -4318,7 +4358,9 @@ begin
                         //latchSS<=1;
                         executionState<=9'h1fd;     // RNI
                     end
-
+//1ea                                                                                    
+//1eb                                                                                    
+//1ec   C  F  I  L     R          SIGMA -> PC        4   FLUSH RNI         010011011.10  WAIT continued
 //1ed (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. POP...)  prefix 8F
                 9'h1ED:
                     begin

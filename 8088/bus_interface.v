@@ -10,6 +10,7 @@ module bus_interface
     input               INTR,
     input               NMI,
     input               HOLD,
+    input               TEST_n,
 
     input   [7:0]       inAD,
 
@@ -62,6 +63,7 @@ module bus_interface
     output prefetchFull /*verilator public */,
     output indirectBusOpInProgress /* verilator public */,
     output reg irqPending /* verilator public */,
+    output reg wait_n /* verilator public */,
     output suspending   /* verilator public */
   );
 
@@ -198,6 +200,7 @@ begin
         indirectBytes<=0;
         indirectBusCycle<=0;
         irqPending<=0;
+        wait_n<=TEST_n;
         /// TODOs
         INTA_n<=1;
         DTR<=0;
@@ -214,6 +217,7 @@ begin
         begin
             tick<=1;
             irqPending<=INTR;
+            wait_n <= TEST_n;
         end
         else
             tick<=0;

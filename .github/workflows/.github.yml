@@ -1,0 +1,14 @@
+name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Ubuntu Dependencies
+      run: sudo apt-get install verilator
+    - name: Checkout
+      uses: actions/checkout@v2.0.0
+    - name: Build project
+      run: make

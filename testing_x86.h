@@ -1,3 +1,5 @@
+#pragma once
+
 enum ERegisterNum
 {
     AX = 0,
