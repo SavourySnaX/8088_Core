@@ -215,6 +215,12 @@ begin
         PostEffectiveAddressReturn <= 9'h014;
         executionState <= 9'h1f5;
     end
+    else if (inst[7:1] == 7'b1000010)                         // TEST rm,r
+    begin
+        instruction[1]<=1;                               // acts as if direction is 1
+        PostEffectiveAddressReturn <= 9'h094;
+        executionState <= 9'h1f5;
+    end
     else if ({inst[7:2],inst[0]} == 7'b1000110)          // MOV rmw<->sr
     begin
         instruction[0]<=1;                               // its a word operation
@@ -1946,6 +1952,35 @@ begin
                         ind_readWrite<=1;
                         executionState<=9'h1fd; // RNI
                     end
+
+//094   CD F   J  M  P            M     -> tmpa      1   AND   tmpa        01000010?.00  TEST rm,r
+                9'h094:
+                    begin
+                        // M->tmpa  AND tmpa,tmpb
+                        code_M={instruction[0],modrm[2:0]};
+                        code_M2TmpA=1;
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord<=instruction[0];
+                        operation<=ALU_OP_AND;     // A&B
+                        executionState<=9'h095;
+                    end
+//095 A CD F H J L  OPQRS U       R     -> tmpb      4   none  NWB,NX                    
+                9'h095:
+                    begin
+                        code_M={instruction[0],modrm[5:3]};
+                        code_R2TmpB=1;
+                        executionState<=9'h096;
+                    end
+//096 ABC  F  I KL  OPQR          SIGMA -> no dest   4   none  RNI      F                
+                9'h096:
+                    begin
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+                        executionState<=9'h1fd; //RNI
+                    end
+//097                                                                             
 
 //098 A C E  HIJ     P   T        Q     -> tmpbL     0   L8       2        ?1111000?.00   TEST rm,i
                 9'h098:

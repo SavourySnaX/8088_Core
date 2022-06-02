@@ -2839,6 +2839,25 @@ int ValidateCallFarRM(const char* testData, int counter, int testCnt, int regIni
     return 1;
 }
 
+int ValidateTestRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+    int mod = Extract(testData,'M',counter,testCnt);
+    int reg = Extract(testData,'R',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,reg,RM,dispL,dispH);
+    int opBValue = FetchDestValue(1,word,mod,reg,RM,dispL,dispH);
+
+    int hValue = opAValue;
+    
+    if (word==1)
+        return CheckTestResultW(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);          // don't validate U flags
+    return CheckTestResultB(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);              // don't validate U flags
+}
+
 
 #define TEST_MULT 4
 
@@ -2991,6 +3010,7 @@ const char* testArray[]={
     "11111111 00011mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateCallFarRM,                 (const char*)RegisterNum,       (const char*)0,           // call FAR rm (mod 0)
     "11111111 01011mmm LLLLLLLL ",                              (const char*)ValidateCallFarRM,                 (const char*)RegisterNum,       (const char*)1,           // call FAR rm (mod 1)
     "11111111 10011mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateCallFarRM,                 (const char*)RegisterNum,       (const char*)2,           // call FAR rm (mod 2)
+    "1000010W MMRRRmmm llllllll hhhhhhhh ",                     (const char*)ValidateTestRM,                    (const char*)RegisterNum,       (const char*)0,           // test rm,r
 #endif
     // TODO ADD TESTS FOR  : HLT, irq
     0
