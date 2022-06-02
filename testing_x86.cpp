@@ -9,6 +9,76 @@
 
 extern Vtop *tb;
 
+// OF|DF|IF|TF|SF|ZF|U |AF|U |PF|U |CF
+
+int TestFlags(int hFlags,int tFlags, int flagMask)
+{
+    if (flagMask & FLAG_Z)
+    {
+        int isZeroH = (hFlags & FLAG_Z)?1:0;
+        int isZeroT = (tFlags & FLAG_Z)?1:0;
+        if (isZeroT!=isZeroH)
+        {
+            printf("Z flag mismatch %d != %d\n", isZeroH, isZeroT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_S)
+    {
+        int isSignH = (hFlags & FLAG_S)?1:0;
+        int isSignT = (tFlags & FLAG_S)?1:0;
+        if (isSignH!=isSignT)
+        {
+            printf("S flag mismatch %d != %d\n", isSignH, isSignT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_C)
+    {
+        int isCarryH = (hFlags & FLAG_C)?1:0;
+        int isCarryT = (tFlags & FLAG_C)?1:0;
+        if (isCarryH!=isCarryT)
+        {
+            printf("C flag mismatch %d != %d\n", isCarryH, isCarryT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_A)
+    {
+        int isAuxCarryH = (hFlags & FLAG_A)?1:0;
+        int isAuxCarryT = (tFlags & FLAG_A)?1:0;
+        if (isAuxCarryH!=isAuxCarryT)
+        {
+            printf("A flag mismatch %d != %d\n", isAuxCarryH, isAuxCarryT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_O)
+    {
+        int isOverflowH = (hFlags & FLAG_O)?1:0;
+        int isOverflowT = (tFlags & FLAG_O)?1:0;
+        if (isOverflowH!=isOverflowT)
+        {
+            printf("O flag mismatch %d != %d\n", isOverflowH, isOverflowT);
+            return 0;
+        }
+    }
+    if (flagMask & FLAG_P)
+    {
+        int isParityH = (hFlags & FLAG_P)?1:0;
+        int isParityT = (tFlags & FLAG_P)?1:0;
+        if (isParityH!=isParityT)
+        {
+            printf("P flag mismatch %d != %d\n", isParityH, isParityT);
+            return 0;
+        }
+    }
+
+    return 1;
+
+}
+
+
 //	AFFECT S AS SIGN, Z AS ZERO, A AS CARRY(3), O AS OVERFLOW(dst,src,7), C AS CARRY(7), P AS PARITYEVEN { (dst + src)+carry }->res;
 int CheckAddFlagsW(int a,int b, int flagMask)
 {
@@ -1573,7 +1643,7 @@ int CheckIDivB(int a,int b, int flagMask, int expected)
         );
 
     if ((res&0xFFFF)!=(expected&0xFFFF))
-        printf("\n%04X / %02X = %04X vs %04X\n",a&0xFFFF,b&0xFF,res&0xFFFF,expected&0xFFFF);
+        printf("\n%04X / %02X = %04X vs %04X\n",a&0xFFFF,b&0xFF,(unsigned int)(res&0xFFFF),expected&0xFFFF);
 
     return TestFlags(tb->top->eu->FLAGS,ret, flagMask) && ((res&0xFFFF)==(expected&0xFFFF));
 }

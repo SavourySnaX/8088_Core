@@ -7,17 +7,18 @@
 #include "Vtop_bus_interface.h"
 #include "verilated.h"
 #include "verilated_vcd_c.h"
+
+#include "tb_top_wait_irq.h"
+#include "tb_top_arith_tests.h"
+
 #include "testing_x86.h"
 
 #define TRACE  0
 
-#define ARITH_TESTS 0
+#define IRQ_WAIT_TESTS 1
+#define ARITH_TESTS 1
 #define UNIT_TEST 1
 #define ALL_TESTS 1
-#define TINY_ROM 0
-#define VIDEO_BOOTSTRAP 0
-#define TEST_P88 0
-#define P88_FILEPATH "/home/snax/ROMS/KONIX_ATTACK_OF_THE_MUTANT_CAMELS_V0_4_FIXED.P88"
 
 #define CLK_DIVISOR 8
 
@@ -33,83 +34,8 @@ uint32_t latchedAddress;
 int lastWrite=1,lastRead=1;
 Vtop *tb;
 
-#if UNIT_TEST || ARITH_TESTS
-
 #define RAMSIZE 1024*1024
 unsigned char RAM[RAMSIZE];
-
-// OF|DF|IF|TF|SF|ZF|U |AF|U |PF|U |CF
-
-int TestFlags(int hFlags,int tFlags, int flagMask)
-{
-    if (flagMask & FLAG_Z)
-    {
-        int isZeroH = (hFlags & FLAG_Z)?1:0;
-        int isZeroT = (tFlags & FLAG_Z)?1:0;
-        if (isZeroT!=isZeroH)
-        {
-            printf("Z flag mismatch %d != %d\n", isZeroH, isZeroT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_S)
-    {
-        int isSignH = (hFlags & FLAG_S)?1:0;
-        int isSignT = (tFlags & FLAG_S)?1:0;
-        if (isSignH!=isSignT)
-        {
-            printf("S flag mismatch %d != %d\n", isSignH, isSignT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_C)
-    {
-        int isCarryH = (hFlags & FLAG_C)?1:0;
-        int isCarryT = (tFlags & FLAG_C)?1:0;
-        if (isCarryH!=isCarryT)
-        {
-            printf("C flag mismatch %d != %d\n", isCarryH, isCarryT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_A)
-    {
-        int isAuxCarryH = (hFlags & FLAG_A)?1:0;
-        int isAuxCarryT = (tFlags & FLAG_A)?1:0;
-        if (isAuxCarryH!=isAuxCarryT)
-        {
-            printf("A flag mismatch %d != %d\n", isAuxCarryH, isAuxCarryT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_O)
-    {
-        int isOverflowH = (hFlags & FLAG_O)?1:0;
-        int isOverflowT = (tFlags & FLAG_O)?1:0;
-        if (isOverflowH!=isOverflowT)
-        {
-            printf("O flag mismatch %d != %d\n", isOverflowH, isOverflowT);
-            return 0;
-        }
-    }
-    if (flagMask & FLAG_P)
-    {
-        int isParityH = (hFlags & FLAG_P)?1:0;
-        int isParityT = (tFlags & FLAG_P)?1:0;
-        if (isParityH!=isParityT)
-        {
-            printf("P flag mismatch %d != %d\n", isParityH, isParityT);
-            return 0;
-        }
-    }
-
-    return 1;
-
-}
-
-#endif
-
-#if UNIT_TEST       // RUN ON 64BIT X86 since i cheated and use asm for flags
 
 #define MAX_READWRITE_CAPTURE   100
 
@@ -3065,6 +2991,11 @@ int ValidateLDS(const char* testData, int counter, int testCnt, int regInitVal)
     return 1;
 }
 
+int ValidateWait(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    return 1;   // For now, we have the TEST pin held such that the instruction acts as a NOP
+}
+
 #define TEST_MULT 4
 
 const char* testArray[]={ 
@@ -3232,8 +3163,10 @@ const char* testArray[]={
     "11000101 00RRRmmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateLDS,                       (const char*)RegisterNum,       (const char*)0,           // LDS r,m (mod 0)
     "11000101 01RRRmmm LLLLLLLL ",                              (const char*)ValidateLDS,                       (const char*)RegisterNum,       (const char*)1,           // LDS r,m (mod 1)
     "11000101 10RRRmmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateLDS,                       (const char*)RegisterNum,       (const char*)2,           // LDS r,m (mod 2)
+    "10011011 ",                                                (const char*)ValidateWait,                      (const char*)RegisterNum,       (const char*)0,           // Wait
 #endif
-    // TODO ADD TESTS FOR  : HLT, irq
+
+    // END MARKER
     0
 };
 
@@ -3484,811 +3417,6 @@ void SimulateInterface(Vtop *tb)
     lastRead=tb->RD_n;
 }
 
-#elif TINY_ROM
-
-// B8 34 12     mov $1234,ax                     4                32
-//loop:
-// E7 0D        out ax,$d                        10
-// 40           inc ax                           2
-// EB FB        jmp loop                         15
-
-#define ROMSIZE 16
-const unsigned char ROM[16] = {0xb8, 0x34, 0x12, 0xE7, 0x0D, 0x40, 0xEB, 0xFB, /*NOT EXECUTED BYTES FOLLOWING*/ 0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88};
-
-#elif VIDEO_BOOTSTRAP
-
-#define ROMSIZE 64
-const unsigned char ROM[64] = {
-0xB8,
-0x3C,
-0x00,
-0xE7,
-0x02,
-0xB8,
-0x03,
-0x01,
-0xE7,
-0x11,
-0xB0,
-0x0F,
-0xE6,
-0x0B,
-0xE6,
-0x16,
-0xB0,
-0x01,
-0xE6,
-0x13,
-0xB0,
-0x01,
-0xE6,
-0x0C,
-0xB0,
-0x00,
-0xE6,
-0x0F,
-0xE6,
-0x10,
-0xB8,
-0x00,
-0x01,
-0xE7,
-0x08,
-0xE6,
-0x0A,
-0xE7,
-0x0D,
-0x40,
-0xEB,
-0xFB,
-0x00,
-0x00,
-0x00,
-0x00,
-0x00,
-0x00,
-0xEA,
-0x00,
-0x00,
-0x00,
-0x80,
-0x00,
-0x00,
-0x00};
-#elif TEST_P88
-
-#define ROMSIZE 1024*1024
-unsigned char ROM[ROMSIZE];
-
-#define SEGTOPHYS(seg,off)	( ((seg)<<4) + (off) )				// Convert Segment,offset pair to physical address
-int HandleLoadSection(FILE* inFile)
-{
-	uint16_t	segment,offset;
-	uint16_t	size;
-	int		a=0;
-	uint8_t		byte;
-
-	if (2!=fread(&segment,1,2,inFile))
-	{
-		printf("Failed to read segment for LoadSection\n");
-		exit(1);
-	}
-	if (2!=fread(&offset,1,2,inFile))
-	{
-		printf("Failed to read offset for LoadSection\n");
-		exit(1);
-	}
-	fseek(inFile,2,SEEK_CUR);		// skip unknown
-	if (2!=fread(&size,1,2,inFile))
-	{
-		printf("Failed to read size for LoadSection\n");
-		exit(1);
-	}
-
-	printf("Found Section Load Memory : %04X:%04X   (%08X bytes)\n",segment,offset,size);
-
-	for (a=0;a<size;a++)
-	{
-		if (1!=fread(&byte,1,1,inFile))
-		{
-			printf("Failed to read data from LoadSection\n");
-			exit(1);
-		}
-        ROM[(a+SEGTOPHYS(segment,offset))&(ROMSIZE-1)] = byte;
-	}
-
-	return 8+size;
-}
-
-int HandleExecuteSection(FILE* inFile)
-{
-	uint16_t	segment,offset;
-	
-	if (2!=fread(&segment,1,2,inFile))
-	{
-		printf("Failed to read segment for ExecuteSection\n");
-		exit(1);
-	}
-	if (2!=fread(&offset,1,2,inFile))
-	{
-		printf("Failed to read offset for ExecuteSection\n");
-		exit(1);
-	}
-
-    //offset+=0x2d0e;  // HACK IMUL loc
-    offset+=0x11d;
-
-    // Create lJMP in RESET address
-    ROM[0xFFFF0&(ROMSIZE-1)]=0xEA;
-    ROM[0xFFFF1&(ROMSIZE-1)]=offset;
-    ROM[0xFFFF2&(ROMSIZE-1)]=offset>>8;
-    ROM[0xFFFF3&(ROMSIZE-1)]=segment;
-    ROM[0xFFFF4&(ROMSIZE-1)]=segment>>8;
-
-
-	printf("Found Section Execute : %04X:%04X\n",segment,offset);
-
-	return 4;
-}
-
-void LoadP88(const char* path)
-{
-    FILE *p88 = fopen(path, "rb");
-    fseek(p88,0,SEEK_END);
-    long size = ftell(p88);
-    fseek(p88,0,SEEK_SET);
-
-    while (size)
-    {
-        unsigned char t;
-        if (1!=fread(&t, 1,1, p88))
-        {
-            printf("FAILED TO READ SECTION\n");
-            exit(1);
-        }
-        size--;
-
-        switch (t)
-        {
-            case 0xFF:
-                break;
-            case 0xC8:
-                size-=HandleLoadSection(p88);
-                break;
-            case 0xCA:
-                size-=HandleExecuteSection(p88);
-                break;
-        }
-    }
-}
-
-int testState=1;
-
-unsigned char PeekByte(unsigned int address)
-{
-    return ROM[address & (ROMSIZE-1)];
-}
-
-#include "disasm.c"
-
-int startDebuggingAddress = 0x7007D;
-int showDebugger=1;
-
-#define RAND_IO_SIZE 16
-int IORand[RAND_IO_SIZE]={0x00,0x00,0xFF,0xFF,0x00,0x80,0xFF,0x7F,0x11,0x11,0x22,0x22,0x33,0x33,0x44,0x44};
-int randomIOIdx=0;
-
-void SimulateInterface(Vtop *tb)
-{
-    if (tb->RESET==1)
-        return;
-    if (tb->ALE)
-    {
-        uint32_t address = tb->A<<8;
-        address|=tb->outAD;
-        latchedAddress=address;
-    }
-    if (tb->RD_n==0 && lastRead==1)
-    {
-        if (tb->IOM==1)
-        {
-            tb->inAD = ROM[latchedAddress & (ROMSIZE-1)];
-            printf("Read RAM : %08X -> %02X\n", latchedAddress, tb->inAD);
-        }
-        else
-        {
-            tb->inAD = IORand[(randomIOIdx++)&(RAND_IO_SIZE-1)];
-            printf("Read IO : %08X -> %02X\n", latchedAddress, tb->inAD);
-        }
-    }
-    if (tb->WR_n==1 && lastWrite==0)    // Only log once per write
-    {
-        if (tb->IOM==1)
-        {
-            ROM[latchedAddress & (ROMSIZE-1)]=tb->outAD;
-            printf("Write To Ram : %08X <- %02X\n",latchedAddress,tb->outAD);
-        }
-        else
-            printf("Write To IO : %08X <- %02X\n",latchedAddress,tb->outAD);
-    }
-    lastWrite=tb->WR_n;
-    lastRead=tb->RD_n;
-}
-
-int tickLimit=-1;
-
-int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
-{
-    if (tickLimit!=-1 && ticks>tickLimit)
-        return 1;
-    if (TICK_LIMIT)
-    {
-        if (ticks>TICK_LIMIT)
-            return 1;
-    }
-
-    switch (testState)
-    {
-        case 0:
-            if (tb->top->eu->executionState == 0x1FD)   // Wait For Instruction Fetch
-            {
-                testState++;
-            }
-            break;
-        case 1:
-            if (tb->top->eu->executionState != 0x1FD)   // Wait For Execute
-            {
-                testState++;
-                tb->top->eu->TRACE_MODE=1;  // prevent further instruction execution
-            }
-            break;
-        case 2:
-            if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0) && (tb->top->biu->prefetchFull==1))
-            {
-                // At this point an instruction has completed.. (and the prefetch q is full)
-
-                int address = (tb->top->biu->REGISTER_CS*16) + (tb->top->biu->REGISTER_IP - tb->top->biu->qSize);
-                if (address == startDebuggingAddress)
-                    showDebugger=1;
-                if (showDebugger)
-                {
-                    // Dump State 
-
-                    InStream a;
-                    a.bytesRead=0;
-                    a.curAddress=address;
-                    a.findSymbol=NULL;
-                    a.useAddress=1;
-                    Disassemble(&a,0);
-
-                    printf("\nAX : %04X | BX : %04X | CX : %04X | DX : %04X\n", tb->top->eu->AX, tb->top->eu->BX, tb->top->eu->CX, tb->top->eu->DX);
-                    printf("BP : %04X | SP : %04X | DI : %04X | SI : %04X\n", tb->top->eu->BP, tb->top->eu->SP, tb->top->eu->DI, tb->top->eu->SI);
-                    printf("CS : %04X | DS : %04X | ES : %04X | SS : %04X\n", tb->top->biu->REGISTER_CS, tb->top->biu->REGISTER_DS, tb->top->biu->REGISTER_ES, tb->top->biu->REGISTER_SS);
-                    printf("FLAGS : %04X    O  D  I  T  S  Z  -  A  -  P  -  C\n", tb->top->eu->FLAGS);
-                    printf("                %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s\n",
-                        tb->top->eu->FLAGS & 0x800 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x400 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x200 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x100 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x080 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x040 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x020 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x010 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x008 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x004 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x002 ? "1" : "0",
-                        tb->top->eu->FLAGS & 0x001 ? "1" : "0");
-                    printf("\nCS:IP : %05X    ", address);
-                    for (int b=0;b<a.bytesRead;b++)
-                    {
-                        printf("%02X ", PeekByte(address+b));
-                    }
-                    for (int b=a.bytesRead;b<9;b++)
-                    {
-                        printf("   ");
-                    }
-                    printf("%s\n",GetOutputBuffer());
-                    int v=getchar();
-                    printf("%d\n",v);
-                    if (v=='f')
-                    {
-                        tb->top->eu->AX=0x80;
-                        tb->top->eu->CX=5;
-                        tickLimit=ticks+2000;
-                        getchar();// consume CR
-                        return 0;
-                    }
-                    else
-                    {
-                        if (v!=10)
-                            return 1;
-                    }
-                }
-                
-                tb->top->eu->TRACE_MODE=0;
-                testState=1;
-            }
-            break;
-        case 99:
-            return 1;
-    }
-
-    return 0;
-}
-
-#endif
-
-#if ARITH_TESTS
-
-#define TEST_MULT 6
-
-int GuardCheckDivB(int a,int b, int flagMask, int expected)
-{
-    if (b==0)
-    {
-        int vector = 0x100;
-
-        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
-        return ip==vector;
-    }
-    else
-    {
-        uint32_t divA,divB;
-        divA= a;
-        divB= b;
-
-        if (divA/divB > 255)
-        {
-            int vector = 0x100;
-
-            int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
-            return ip==vector;
-        }
-
-        return CheckDivB(a, b, flagMask, expected);
-    }
-}
-
-bool div(uint16_t l, uint16_t h,uint16_t _source,int _wordSize, int _signed, int intrpt,uint16_t expectedL, uint16_t expectedH, int& res);
-
-static sigjmp_buf fpe_env;
-
-
-volatile int interrupt=0;
-static void handler(int signal, siginfo_t* w, void* a)
-{
-    siglongjmp(fpe_env, w->si_code);
-}
-
-int GuardCheckIDivB(int a,int b, int flagMask, int expected)
-{
-/*    struct sigaction act,old;
-    interrupt=0;
-    int ok=0;
-
-    int code=sigsetjmp(fpe_env,1);
-    if (code==0)
-    {
-        act.sa_sigaction = handler;
-        sigemptyset(&act.sa_mask);
-        act.sa_flags=SA_SIGINFO;
-        if (sigaction(SIGFPE,&act,&old)<0)
-            exit(1);
-        ok= CheckIDivB(a, b, flagMask, expected);
-        if (sigaction(SIGFPE,&old,NULL)<0)
-            exit(1);
-    }
-    else
-    {
-        if (sigaction(SIGFPE,&old,NULL)<0)
-            exit(1);
-
-        interrupt=1;
-        //printf("\n\n\nEXCEPTED\n");
-    }
-*/
-    int ok=0;
-    int answer=div(a&0xFF,a>>8,b,0,1,interrupt,tb->top->eu->AX&0xFF,tb->top->eu->AX>>8,ok);
-
-    //if (interrupt)
-    if (!answer)
-    {
-        int vector = 0x100;
-
-        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
-        if (ip!=vector)
-            printf("\nDIDN'T CATCH OVERFLOW\n");
-        return ip==vector;
-    }
-    return ok==0;
-}
-
-int GuardCheckDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
-{
-    if (b==0)
-    {
-        int vector = 0x100;
-
-        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
-        return ip==vector;
-    }
-    else
-    {
-        uint32_t divA,divB;
-        divA= (ah<<16)|(al);
-        divB= b;
-
-        if (divA/divB > 65535)
-        {
-            int vector = 0x100;
-
-            int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
-            return ip==vector;
-        }
-
-        return CheckDivW(al,ah, b, flagMask, expected, expected2);
-    }
-}
-
-int GuardCheckIDivW(int al,int ah,int b, int flagMask, int expected, int expected2)
-{
-    int ok=0;
-    int answer=div(al,ah,b,1,1,interrupt,tb->top->eu->AX,tb->top->eu->DX,ok);
-
-    if (!answer)
-    {
-        int vector = 0x100;
-
-        int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
-        if (ip!=vector)
-            printf("\nDIDN'T CATCH OVERFLOW\n");
-        return ip==vector;
-    }
-    return ok==0;
-}
-
-// 0 = opA,opB,flags,result
-// 1 = opA,opB,cIn,flags,result
-// 2 = opA, flags, result
-// 3 = opA,opB,flags,result  (but result in AX)
-// 4 = opA,opB,flags,resulthi,resultlo  (DX,AX)
-// 5 = opAl,opAH,opB,flags,resulthi,resultlo  (DX,AX)
-// 6 = opA,opB,flags,result  (but result in AX)
-const char* testArray[]={ 
-    // Byte Tests
-#if 1
-//    "\x00""\xC1",       (const char*)2,         (const char*)CheckAddResultB,       "add al,cl",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)0,
-//    "\x10""\xC1",       (const char*)2,         (const char*)CheckAdcResultB,       "adc al,cl",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)1,
-//    "\xF6""\xD9",       (const char*)2,         (const char*)CheckNegResultB,       "neg cl",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
-//    "\xF6""\xE1",       (const char*)2,         (const char*)CheckMulB,             "mul cl",       (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
-//    "\xF6""\xE9",       (const char*)2,         (const char*)CheckIMulB,            "imul cl",      (const char*)(FLAG_O|FLAG_C),                                   (const char*)3,
-//    "\xF6""\xF1",       (const char*)2,         (const char*)GuardCheckDivB,        "div cl",       (const char*)(0),                                               (const char*)6,
-    "\xF6""\xF9",       (const char*)2,         (const char*)GuardCheckIDivB,       "idiv cl",      (const char*)(0),                                               (const char*)6,
-#endif    
-
-
-    (const char*)1,     0,                      0,                                  0,              0,                                                              0,// switch to word based
-
-
-    // Word Tests
-#if 1
-    //"\x01""\xC1",       (const char*)2,         (const char*)CheckAddResultW,       "add cx,ax",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)0,
-    //"\x11""\xC1",       (const char*)2,         (const char*)CheckAdcResultW,       "adc cx,ax",    (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)1,
-    //"\xF7""\xD9",       (const char*)2,         (const char*)CheckNegResultW,       "neg cx",       (const char*)(FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C),       (const char*)2,
-//    "\xF7""\xE1",       (const char*)2,         (const char*)CheckMulW,             "mul cx",       (const char*)(FLAG_O|FLAG_C),                                   (const char*)4,
-//    "\xF7""\xE9",       (const char*)2,         (const char*)CheckIMulW,            "imul cx",      (const char*)(FLAG_O|FLAG_C),                                   (const char*)4,
-    //"\xF7""\xF1",       (const char*)2,         (const char*)GuardCheckDivW,            "div cx",      (const char*)(0),                                   (const char*)5,
-    "\xF7""\xF9",       (const char*)2,         (const char*)GuardCheckIDivW,           "idiv cx",      (const char*)(0),                                   (const char*)5,
-#endif
-    0};
-
-int testPos=0;
-int testState=-1;
-int testCntr=0;
-int byteMode=1;
-
-long currentTestCnt;
-long currentTestCounter;
-
-typedef int (*Validate0)(int,int,int,int);
-typedef int (*Validate1)(int,int,int,int,int);
-typedef int (*Validate2)(int,int,int);
-typedef int (*Validate3)(int,int,int,int,int,int);
-
-int operandA,operandB,cIn,operandC;
-
-int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
-{
-    if (testCntr>0)
-    {
-        testCntr--;
-        return 0;
-    }
-
-    if (TICK_LIMIT)
-    {
-        if (ticks>TICK_LIMIT)
-            return 1;
-    }
-
-    switch (testState)
-    {
-        case -1:
-            // Fill RAM with values
-            for (int a=0;a<0xFFFFF;a++)
-            {
-                RAM[a]=((a>>12)&0xF0)|(a&0xF);
-            }
-            testState++;
-            break;
-        case 0:
-            if (testArray[testPos*TEST_MULT]==0)
-            {
-                testState=99;
-            }
-            else
-            {
-                if (testArray[testPos*TEST_MULT]==(const char*)1)
-                {
-                    byteMode=false;
-                    testPos++;
-                    break;
-                }
-
-                testState++;
-                if (byteMode)
-                {
-                    if (testArray[testPos*TEST_MULT+5]==(const char*)2)
-                        currentTestCnt=256;
-                    else
-                    {
-                        if (testArray[testPos*TEST_MULT+5]==(const char*)6)
-                            currentTestCnt=65536l*65536;
-                        else
-                            currentTestCnt=65536;
-                    }
-                    currentTestCounter=0;//30480285;
-                }
-                else
-                {
-                    if (testArray[testPos*TEST_MULT+5]==(const char*)2)
-                        currentTestCnt=65536;
-                    else
-                        currentTestCnt = 65536l * 65536;
-                    currentTestCounter=0;
-                }
-
-                if (testArray[testPos*TEST_MULT+5]==(const char*)1)
-                    currentTestCnt*=2;  // need an extra bit for carry
-                if (testArray[testPos*TEST_MULT+5]==(const char*)5)
-                    currentTestCnt*=65536;
-            }
-            break;
-        case 1:
-            {
-                tb->RESET=1;
-                printf("Running test (%s) : %ld / %ld\r",testArray[testPos*TEST_MULT+3],currentTestCounter+1, currentTestCnt);
-                int total = (int)(intptr_t)testArray[testPos*TEST_MULT+1];
-                for (int a=0;a<total;a++)
-                {
-                    RAM[0xFFFF0+a]=testArray[testPos*TEST_MULT+0][a];
-                }
-                testState++;
-                testCntr=16;
-            }
-            break;
-        case 2:
-            tb->RESET=0;
-            if (tb->top->eu->executionState == 0x1FD)   // Instruction Fetch
-            {
-                if (byteMode)
-                {
-                    if (testArray[testPos*TEST_MULT+5]==(const char*)6)
-                    {
-#if TRACE
-                        operandA=0xFF00;
-                        operandB=0x02;
-                        currentTestCnt=1;
-#else
-                        operandA=currentTestCounter&0xFFFF;
-                        operandB=(currentTestCounter>>16)&0xFF;
-                        cIn=(currentTestCounter>>24)&1;
-#endif
-                    }
-                    else
-                    {
-                        operandA=currentTestCounter&0xFF;
-                        operandB=(currentTestCounter>>8)&0xFF;
-                        cIn=(currentTestCounter>>16)&1;
-                    }
-                }
-                else
-                {
-                    operandA=currentTestCounter&0xFFFF;
-                    operandB=(currentTestCounter>>16)&0xFFFF;
-                    if (testArray[testPos*TEST_MULT+5]==(const char*)5)
-                    {
-                        operandC=(currentTestCounter>>32)&0xFFFF;
-                    }
-                    else
-                    {
-                        cIn=(currentTestCounter>>32)&1;
-                    }
-                }
-                if (testArray[testPos*TEST_MULT+5]==(const char*)2)
-                    tb->top->eu->CX=operandA;
-                else
-                    tb->top->eu->CX=operandB;
-                tb->top->eu->AX=operandA;
-                tb->top->eu->DX=operandC;
-
-                if (testArray[testPos*TEST_MULT+5]==(const char*)1)
-                {
-                    if (cIn)
-                        tb->top->eu->FLAGS|=FLAG_C;
-                }
-
-                testState++;
-            }
-            break;
-        case 3:
-            if (tb->top->eu->executionState != 0x1FD)
-            {
-                testState++;
-                tb->top->eu->TRACE_MODE=1;  // prevent further instruction execution
-            }
-            break;
-        case 4:
-            if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0))
-            {
-                int ok = 0;
-                switch ((int)(intptr_t)testArray[testPos*TEST_MULT+5])
-                {
-                    case 0:
-                        ok = ((Validate0)testArray[testPos*TEST_MULT+2])(operandA,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->CX);
-                        break;
-                    case 1:
-                        ok = ((Validate1)testArray[testPos*TEST_MULT+2])(operandA,operandB,cIn,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->CX);
-                        break;
-                    case 2:
-                        ok = ((Validate2)testArray[testPos*TEST_MULT+2])(operandA,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->CX);
-                        break;
-                    case 3:
-                    case 6:
-                        ok = ((Validate0)testArray[testPos*TEST_MULT+2])(operandA,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->AX);
-                        break;
-                    case 4:
-                        ok = ((Validate1)testArray[testPos*TEST_MULT+2])(operandA,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->AX,tb->top->eu->DX);
-                        break;
-// 5 = opAl,opAH,opB,flags,resulthi,resultlo  (DX,AX)
-                    case 5:
-                        ok = ((Validate3)testArray[testPos*TEST_MULT+2])(operandA,operandC,operandB,(int)(intptr_t)testArray[testPos*TEST_MULT+4],tb->top->eu->AX,tb->top->eu->DX);
-                        break;
-                }
-                if (!ok)
-                {
-                    if (byteMode)
-                    {
-                        if (testArray[testPos*TEST_MULT+5]==(const char*)6)
-                            printf("\nERROR %s %04X,%02X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
-                        else
-                            printf("\nERROR %s %02X,%02X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
-                    }
-                    else
-                    {
-                        if (testArray[testPos*TEST_MULT+5]==(const char*)5)
-                            printf("\nERROR %s %04X%04X,%04X\n",testArray[testPos*TEST_MULT+3],operandC,operandA,operandB);
-                        else
-                            printf("\nERROR %s %04X,%04X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
-                    }
-                    //testState=99;
-                }
-                //else
-                {
-                    if (currentTestCnt<=65536)
-                    {
-                        currentTestCounter++;
-                    }
-                    else
-                    {
-                        if (testArray[testPos*TEST_MULT+5]==(const char*)5)
-                            currentTestCounter+=0x00010007000D;
-                        else
-                            currentTestCounter+=0x01000D;
-                    }
-                    if (currentTestCounter>=currentTestCnt)
-                    {
-                        printf("\nAll Tests PASSED (%s)\n",testArray[testPos*TEST_MULT+3]);
-                        testPos++;
-
-                        testState=0;
-                    }
-                    else
-                    {
-                        testState=1;
-                    }
-                }
-            }
-            break;
-        case 99:
-            return 1;
-    }
-
-    return 0;
-}
-
-
-// Address FFFF0 - FFFFF encoded instruction
-
-void SimulateInterface(Vtop *tb)
-{
-    if (tb->RESET==1)
-        return;
-    if (tb->ALE)
-    {
-        uint32_t address = tb->A<<8;
-        address|=tb->outAD;
-        latchedAddress=address;
-    }
-    if (tb->RD_n==0)
-    {
-        tb->inAD = RAM[latchedAddress];
-    }
-}
-#endif
-
-
-
-#if !UNIT_TEST && !TEST_P88 && !ARITH_TESTS
-
-#define RAND_IO_SIZE 16
-int IORand[RAND_IO_SIZE]={0x00,0x00,0xFF,0xFF,0x00,0x80,0xFF,0x7F,0x11,0x11,0x22,0x22,0x33,0x33,0x44,0x44};
-int randomIOIdx=0;
-
-void SimulateInterface(Vtop *tb)
-{
-    if (tb->RESET==1)
-        return;
-    if (tb->ALE)
-    {
-        uint32_t address = tb->A<<8;
-        address|=tb->outAD;
-        latchedAddress=address;
-    }
-    if (tb->RD_n==0 && lastRead==1)
-    {
-        if (tb->IOM==1)
-        {
-            tb->inAD = ROM[latchedAddress & (ROMSIZE-1)];
-            printf("Read RAM : %08X -> %02X\n", latchedAddress, tb->inAD);
-        }
-        else
-        {
-            tb->inAD = IORand[(randomIOIdx++)&(RAND_IO_SIZE-1)];
-            printf("Read IO : %08X -> %02X\n", latchedAddress, tb->inAD);
-        }
-    }
-    if (tb->WR_n==1 && lastWrite==0)    // Only log once per write
-    {
-        if (tb->IOM==1)
-            printf("Write To Ram : %08X <- %02X\n",latchedAddress,tb->outAD);
-        else
-            printf("Write To IO : %08X <- %02X\n",latchedAddress,tb->outAD);
-    }
-    lastWrite=tb->WR_n;
-    lastRead=tb->RD_n;
-}
-
-#endif
-
-#if !UNIT_TEST && !TEST_P88 && !ARITH_TESTS
-int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
-{
-    return ticks >= 200000;
-}
-
-#endif
-
 void tick(Vtop *tb, VerilatedVcdC* trace, int ticks)
 {
     tb->CLK=ck;
@@ -4351,9 +3479,8 @@ int doNTicks(Vtop *tb, VerilatedVcdC* trace, int ticks, int n)
 
 */
 
-int main(int argc, char** argv)
+int ThisFileTestsMain(int argc, char** argv)
 {
-	Verilated::commandArgs(argc,argv);
 
 #if TRACE
 	Verilated::traceEverOn(true);
@@ -4368,32 +3495,18 @@ int main(int argc, char** argv)
 	trace->open("trace.vcd");
 #endif
 
-#if TEST_P88
-    LoadP88(P88_FILEPATH);
-#endif
-
     tb->RESET=1;
     tb->READY = 1;
     tb->NMI = 0;
     tb->INTR=0;
     tb->HOLD=0;
+    tb->TEST_n=0;
 
     // Lets check the various signals according to spec, start of reset for a few ticks
 	int ticks=1;
     ticks = doNTicks(tb,trace,ticks,100);
 
     tb->RESET=0;
-/*
-    // Test routines
-
-    ticks = doNTicks(tb,trace,ticks,CLK_DIVISOR*20);
-    tb->HOLD=1;
-    ticks = doNTicks(tb,trace,ticks,CLK_DIVISOR*20);
-    tb->HOLD=0;
-    
-*/
-
-
     while (!Done(tb,trace,ticks))
     {
         ticks = doNTicks(tb,trace,ticks,1);
@@ -4402,5 +3515,28 @@ int main(int argc, char** argv)
 #if TRACE
 	trace->close();
 #endif
-	exit(EXIT_SUCCESS);
+
+    delete tb;
+
+	return EXIT_SUCCESS;
+}
+
+int main(int argc,char** argv)
+{
+	Verilated::commandArgs(argc,argv);
+
+    int retVal = EXIT_SUCCESS;
+#if IRQ_WAIT_TESTS
+    retVal = IrqWaitTestsMain(argc,argv);
+    if (retVal != EXIT_SUCCESS) return retVal;
+#endif
+#if ARITH_TESTS
+    retVal = ArithTestsMain(argc,argv);
+    if (retVal != EXIT_SUCCESS) return retVal;
+#endif
+#if UNIT_TESTS
+    retVal = ThisFileTestsMain(argc,argv);
+    if (retVal != EXIT_SUCCESS) return retVal;
+#endif
+    return retVal;
 }
