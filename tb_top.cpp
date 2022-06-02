@@ -2858,6 +2858,15 @@ int ValidateTestRM(const char* testData, int counter, int testCnt, int regInitVa
     return CheckTestResultB(opAValue,opBValue,FLAG_O|FLAG_S|FLAG_Z|/*FLAG_A|*/FLAG_P|FLAG_C,hValue);              // don't validate U flags
 }
 
+int ValidateSALC(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    if (regInitVal == FLAG_C)
+    {
+        return FetchByteRegister(ERegisterNum::AX) == 0xFF;
+    }
+    return FetchByteRegister(ERegisterNum::AX)==0x00;
+}
+
 
 #define TEST_MULT 4
 
@@ -3011,6 +3020,8 @@ const char* testArray[]={
     "11111111 01011mmm LLLLLLLL ",                              (const char*)ValidateCallFarRM,                 (const char*)RegisterNum,       (const char*)1,           // call FAR rm (mod 1)
     "11111111 10011mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateCallFarRM,                 (const char*)RegisterNum,       (const char*)2,           // call FAR rm (mod 2)
     "1000010W MMRRRmmm llllllll hhhhhhhh ",                     (const char*)ValidateTestRM,                    (const char*)RegisterNum,       (const char*)0,           // test rm,r
+    "11010110 ",                                                (const char*)ValidateSALC,                      (const char*)SetFlags,          (const char*)FLAG_C,      // SALC (carry set)
+    "11010110 ",                                                (const char*)ValidateSALC,                      (const char*)ClearFlags,        (const char*)0xFFFF,      // SALC (carry clear)
 #endif
     // TODO ADD TESTS FOR  : HLT, irq
     0

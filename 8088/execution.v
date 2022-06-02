@@ -320,6 +320,8 @@ begin
         executionState <= 9'h02c;
     else if ({inst[7:5],inst[2:0]} == 6'b000111)          // POP sr
         executionState <= 9'h038;
+    else if (inst[7:0] == 8'b11010110)                    // SALC
+        executionState <= 9'h0a0;
     else if (inst[7:0] == 8'b11000011)                    // RET
         executionState <= 9'h0bc;
     else if (inst[7:0] == 8'b11001011)                    // RETF
@@ -2074,6 +2076,31 @@ begin
                         code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
                         executionState<=9'h1fd; //RNI
                     end
+
+//0a0 ABC  F HI     OPQ  T                           0   CY       2        011010110.00  SALC
+                9'h0A0:
+                    begin
+                        // CY 2
+                        if (carryIn==1)
+                            executionState<=9'h0a2;
+                        else
+                            executionState<=9'h0a1;
+                    end
+//0a1    D F HIJ L  OPQR          ZERO  -> A         4   none  RNI                       
+                9'h0A1:
+                    begin
+                        // ZERO->A  RNI
+                        AX[7:0]<=8'h00;
+                        executionState<=9'h1fd; // RNI
+                    end
+//0a2    D F HI  L  OPQR          ONES  -> A         4   none  RNI                       
+                9'h0A2:
+                    begin
+                        // ONES->A  RNI
+                        AX[7:0]<=8'hFF;
+                        executionState<=9'h1fd; // RNI
+                    end
+//0a3                                                                                    
 
 //0a4   CD F H J L  OPQRSTU       R     -> tmpa                            01000011?.00  XCHG rm,r
                 9'h0A4:
