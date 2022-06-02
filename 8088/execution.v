@@ -2888,8 +2888,10 @@ begin
                 9'h0FB:
                     begin
                         // INT 5
-                        // TODO interrupt check
-                        executionState<=9'h0fc;
+                        if (irqPending & FLAGS[FLAG_I_IDX]) // TODO NMI
+                            executionState<=9'h0fd;
+                        else
+                            executionState<=9'h0fc;
                     end
 //0fc ABC  F HI    N                                 0   UNC      0        010011011.01  
                 9'h0FC:
@@ -2898,8 +2900,30 @@ begin
                         executionState<=9'h0f8;
                     end
 //0fd ABC  F HI  L  OPQR TU                          4   none  SUSP                      
+                9'h0FD:
+                    begin
+                        suspend<=1;
+                        executionState<=9'h0fe;
+                    end
 //0fe ABC  F HI  L  OPQR T                           4   none  CORR                      
+                9'h0FE:
+                    begin
+                        correct<=1;
+                        executionState<=9'h0ff;
+                    end
 //0ff  BCD    I   MNO  RS         PC    -> tmpc      1   DEC   tmpc   
+                9'h0FF:
+                    begin
+                        // PC -> tmpc
+                        tmpc<=REGISTER_IP;
+                        
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_DEC;
+
+                        executionState<=9'h1ec; // WAIT continued
+                    end
 
 //112  BCD FGH    MN    S         BC    -> tmpc      1   PASS  tmpc                      RPTS
                 9'h112:
@@ -4361,6 +4385,15 @@ begin
 //1ea                                                                                    
 //1eb                                                                                    
 //1ec   C  F  I  L     R          SIGMA -> PC        4   FLUSH RNI         010011011.10  WAIT continued
+                9'h1EC:
+                    begin
+                        // SIGMA->PC  FLUSH RNI
+                        UpdateReg<=SIGMA;
+                        latchPC<=1;
+                        flush<=1;   // FLUSH (and resumes prefetch queue)
+                        executionState<=9'h1fd; // RNI
+                    end
+
 //1ed (NOT REAL mOP) Q -> MODRM (reg == instruction kind e.g. POP...)  prefix 8F
                 9'h1ED:
                     begin
@@ -4550,7 +4583,7 @@ begin
 //1fb (NOT REAL mOP) - Used for HLT
                 9'h1FB:
                     begin
-                        if ((irqPending & FLAGS[FLAG_I_IDX])|TRACE_MODE) // TODO other interrupt sources
+                        if ((irqPending & FLAGS[FLAG_I_IDX])) // TODO other interrupt sources
                             executionState<=9'h1fd; // RNI
                     end
 

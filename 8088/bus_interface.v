@@ -58,8 +58,8 @@ module bus_interface
     input ind_byteWord,     // indirect bus byte/word request
 
     output [7:0] prefetchTop,
-    output [19:0] prefetchTopLinearAddress,
-    output prefetchEmpty, 
+    output [19:0] prefetchTopLinearAddress /* verilator public */,
+    output prefetchEmpty /* verilator public */, 
     output prefetchFull /*verilator public */,
     output indirectBusOpInProgress /* verilator public */,
     output reg irqPending /* verilator public */,

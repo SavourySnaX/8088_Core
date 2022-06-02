@@ -43,7 +43,15 @@ static void SimulateInterface(Vtop *tb)
     }
     if (tb->RD_n==0 && lastRead==1)
     {
-        if (tb->IOM==1)
+        if (tb->INTA_n == 0)
+        {
+            tb->inAD = 0x21;
+#if SHOW_READS
+            printf("Read Int Vector : %02X\n", tb->inAD);
+#endif 
+
+        }
+        else if (tb->IOM==1)
         {
             tb->inAD = ROM[latchedAddress & (ROMSIZE-1)];
 #if SHOW_READS
@@ -102,13 +110,12 @@ static int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
             }
             break;
         case 2:
-            if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0) && (tb->top->biu->prefetchFull==1))
+            if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0) && (tb->top->biu->prefetchEmpty==0))
             {
-                // At this point an instruction has completed.. (and the prefetch q is full)
+                // At this point an instruction has completed..
 
-                tb->top->eu->TRACE_MODE=0;
                 testState++;
-                return 1;
+                return 2;
             }
             break;
     }
@@ -160,20 +167,24 @@ int Reset(Vtop *tb, VerilatedVcdC* trace,int ticks)
 
     ticks = doNTicks(tb,trace,ticks,100);
     testState=0;
+    tb->top->eu->TRACE_MODE=0;
 
     tb->RESET=0;
 
     return ticks;
 }
 
+int tickRes;
+
 int Tick1000(Vtop *tb, VerilatedVcdC* trace,int ticks)
 {
     tickLimit=1000+ticks;
-    while (!Done(tb,trace,ticks))
+    while (!(tickRes=Done(tb,trace,ticks)))
     {
         ticks = doNTicks(tb,trace,ticks,1);
     }
     // exits if an instruction was completed, or tick count runs out
+
     return ticks;
 }
 
@@ -207,6 +218,139 @@ int TestWaitForTEST(Vtop *tb, VerilatedVcdC* trace,int& ticks)
     return 1;
 }
 
+void SetupInterruptVector()
+{
+    ROM[0x00084]=0x00;
+    ROM[0x00085]=0x00;
+    ROM[0x00086]=0x00;
+    ROM[0x00087]=0x00;
+    ROM[0x00000]=0xCF;  // IRET
+}
+
+int CheckIRQ(Vtop *tb, VerilatedVcdC* trace,int& ticks,const char* name,int resumes)
+{
+    ticks = Tick1000(tb,trace,ticks);
+
+    // Since interrupt is not pending, we should not have finished an instruction
+    if (testState==3)
+    {
+        printf("%s instruction completed while no IRQ pending\n", name);
+        return 0;
+    }
+
+    tb->INTR=1;
+
+    ticks = Tick1000(tb,trace,ticks);
+
+    // Since IRQ masked, we should not have finished an instruction
+    if (testState==3)
+    {
+        printf("%s instruction completed while masked IRQ pending\n",name);
+        return 0;
+    }
+
+    tb->top->eu->FLAGS|=0x200;
+
+    ticks = Tick1000(tb,trace,ticks);
+
+    // The interrupt should have caused the test instruction to exit
+    if (testState!=3)
+    {
+        printf("%s instruction did not complete after INT pin was made HIGH\n",name);
+        return 0;
+    }
+
+    if (resumes)
+    {
+        // At this point, we are going to interrupt, PC should point to FFFF0 still
+        if (tb->top->biu->prefetchTopLinearAddress != 0xFFFF0)
+        {
+            printf("%s instruction not ready to resume post interrupt!\n",name);
+            return 0;
+        }
+    }
+
+    testState=0;
+    tb->top->eu->TRACE_MODE=0;
+    // Give time for interrupt handling
+    ticks = Tick1000(tb,trace,ticks);
+    ticks = Tick1000(tb,trace,ticks);
+    ticks = Tick1000(tb,trace,ticks);
+
+    tb->INTR=0;
+
+    if (testState!=3)
+    {
+        printf("%s instruction interrupt not complete in time\n",name);
+    }
+
+    if (tb->top->biu->prefetchTopLinearAddress != 0x0)
+    {
+        printf("%s instruction not ready to execute IRET!\n",name);
+        return 0;
+    }
+
+    testState=0;
+    tb->top->eu->TRACE_MODE=0;
+    ticks = Tick1000(tb,trace,ticks);
+
+    if (testState!=3)
+    {
+        printf("%s instruction IRET did not complete correctly\n",name);
+    }
+
+    if (resumes)
+    {
+        if (tb->top->biu->prefetchTopLinearAddress != 0xFFFF0)
+        {
+            printf("%s instruction not ready to execute after interrupt!\n",name);
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+int TestWaitInterrupted(Vtop *tb, VerilatedVcdC* trace,int& ticks)
+{
+    printf("Testing WAIT instruction Vs Interrupt\n");
+    // Test Wait
+    ticks = Reset(tb,trace,ticks);
+    tb->TEST_n=1;
+    ROM[0xFFFF0]=0x9B;
+    SetupInterruptVector();
+    tb->top->eu->FLAGS=0;   // ensure interrupts masked
+
+    if (!CheckIRQ(tb,trace,ticks,"WAIT",1))
+        return 0;
+
+    printf("OK\n");
+    return 1;
+}
+
+int TestHalt(Vtop *tb, VerilatedVcdC* trace,int& ticks)
+{
+    printf("Testing HALT instruction Vs Interrupt\n");
+    // Test Halt
+    ticks = Reset(tb,trace,ticks);
+    ROM[0xFFFF0]=0xF4;
+    SetupInterruptVector();
+    tb->top->eu->FLAGS=0;   // ensure interrupts masked
+
+    if (!CheckIRQ(tb,trace,ticks,"HALT", 0))
+        return 0;
+        
+    if (tb->top->biu->prefetchTopLinearAddress != 0xFFFF1)
+    {
+        printf("next address to execute after HALT is not correct\n");
+        return 0;
+    }
+
+    printf("OK\n");
+    return 1;
+
+}
+
 /*
 // interrupts during Checks 
 
@@ -216,9 +360,6 @@ int TestWaitForTEST(Vtop *tb, VerilatedVcdC* trace,int& ticks)
     "1111001Z 1010110W ",                                       (const char*)ValidateLODSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP LODS (CX==5)
     "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP MOVS (CX==0)
     "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP MOVS (CX==5)
-    "10011011 ",                                                (const char*)ValidateWait,                      (const char*)RegisterNum,       (const char*)0,           // Wait
-
-     HLT test
 */
 
 
@@ -252,6 +393,19 @@ int IrqWaitTestsMain(int argc, char** argv)
         returnCode=EXIT_FAILURE;
         goto end;
     }
+    
+    if (!TestWaitInterrupted(tb,trace,ticks))
+    {
+        returnCode=EXIT_FAILURE;
+        goto end;
+    }
+    
+    if (!TestHalt(tb,trace,ticks))
+    {
+        returnCode=EXIT_FAILURE;
+        goto end;
+    }
+
 
 end:
 #if TRACE

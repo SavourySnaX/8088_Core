@@ -1,15 +1,15 @@
 [*]
 [*] GTKWave Analyzer v3.3.104 (w)1999-2020 BSI
-[*] Tue May 10 05:50:05 2022
+[*] Thu Jun  2 14:45:06 2022
 [*]
-[dumpfile] "/home/snax/BackedUp/fpga/verilator/8088konix/trace.vcd"
-[dumpfile_mtime] "Tue May 10 05:24:43 2022"
-[dumpfile_size] 113573
+[dumpfile] "/home/snax/BackedUp/fpga/verilator/8088konix/trace_wait_irq.vcd"
+[dumpfile_mtime] "Thu Jun  2 14:40:12 2022"
+[dumpfile_size] 207680
 [savefile] "/home/snax/BackedUp/fpga/verilator/8088konix/8088.gtkw"
-[timestart] 14512
-[size] 2523 1376
-[pos] -1 -1
-*-8.000000 15540 8990 12830 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[timestart] 35069
+[size] 5046 1376
+[pos] -51 -51
+*-10.000000 36260 8990 12830 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
 [treeopen] TOP.
 [treeopen] TOP.top.
 [treeopen] TOP.top.eu.
@@ -35,6 +35,7 @@ TOP.DEN_n
 TOP.DTR
 TOP.HOLD
 TOP.HOLDA
+TOP.top.TEST_n
 TOP.INTA_n
 TOP.INTR
 TOP.IOM
@@ -95,6 +96,12 @@ TOP.top.biu.REGISTER_SS[15:0]
 TOP.top.biu.REGISTER_IP[15:0]
 @200
 -EU
+@29
+TOP.top.eu.TRACE_MODE
+@28
+TOP.top.eu.indirectBusOpInProgress
+TOP.top.eu.irqPending
+TOP.top.eu.wait_n
 @22
 TOP.top.eu.instruction[7:0]
 TOP.top.eu.modrm[7:0]
@@ -107,7 +114,6 @@ TOP.top.eu.OPRr[15:0]
 TOP.top.eu.OPRw[15:0]
 @28
 TOP.top.eu.repeatF
-@29
 TOP.top.eu.carryIn
 @200
 -ALU
