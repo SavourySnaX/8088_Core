@@ -2666,6 +2666,54 @@ int ValidateNotRM(const char* testData, int counter, int testCnt, int regInitVal
     return ((~opAValue)&0xFF) == hValue;
 }
 
+int ValidateIRet(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int sp = tb->top->eu->SP;
+    int cs = tb->top->biu->REGISTER_CS;
+    int flags = tb->top->eu->FLAGS;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int isp = regInitVal;
+    
+    int stackValueIP = FetchReadMemory(1,iss, isp);
+    int stackValueCS = FetchReadMemory(1,iss, isp+2);
+    int stackValueFlags = FetchReadMemory(1,iss, isp+4);
+
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 6 more
+    if (sp!=((isp+6)&0xFFFF))
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp+6, sp);
+        return 0;
+    }
+
+    if (ip != stackValueIP)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", stackValueIP, ip);
+        return 0;
+    }
+    if (cs != stackValueCS)
+    {
+        printf("Code Segment Register Mismatch %04X != %04X\n", stackValueCS, cs);
+        return 0;
+    }
+    if (flags != stackValueFlags)
+    {
+        printf("Flags Register Mismatch %04X != %04X\n", stackValueFlags, flags);
+        return 0;
+    }
+
+
+    return 1;
+}
+
 
 #define TEST_MULT 4
 
@@ -2809,6 +2857,11 @@ const char* testArray[]={
     "10011001 ",                                                (const char*)ValidateCWD,                       (const char*)RegisterNumAX,     (const char*)(0x8000),     // cwd
     "10011001 ",                                                (const char*)ValidateCWD,                       (const char*)RegisterNumAX,     (const char*)(0xFFFF),     // cwd
     "1111011W MM010mmm llllllll hhhhhhhh ",                     (const char*)ValidateNotRM,                     (const char*)RegisterNum,       (const char*)0,            // not rm
+    "11001111 ",                                                (const char*)ValidateIRet,                      (const char*)RegisterNumSP,     (const char*)0,           // iret
+    "11001111 ",                                                (const char*)ValidateIRet,                      (const char*)RegisterNumSP,     (const char*)0x8000,      // iret
+    "11001111 ",                                                (const char*)ValidateIRet,                      (const char*)RegisterNumSP,     (const char*)0xFFFF,      // iret
+    "11001111 ",                                                (const char*)ValidateIRet,                      (const char*)RegisterNumSP,     (const char*)0x1010,      // iret
+    "11001111 ",                                                (const char*)ValidateIRet,                      (const char*)RegisterNumSP,     (const char*)0x9090,      // iret
 #endif
     // TODO ADD TESTS FOR  : IRET, HLT, irq
     0
