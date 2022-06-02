@@ -2714,6 +2714,131 @@ int ValidateIRet(const char* testData, int counter, int testCnt, int regInitVal)
     return 1;
 }
 
+int ValidateCallCD(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int destipL = Extract(testData,'L', counter, testCnt);
+    int destipH = Extract(testData,'H', counter, testCnt);
+    int destcsL = Extract(testData,'l', counter, testCnt);
+    int destcsH = Extract(testData,'h', counter, testCnt);
+    
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int cs = tb->top->biu->REGISTER_CS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int ics = FetchInitialSR(ESRReg::CS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    int expectedip = (destipH<<8)|destipL;
+    int expectedcs = (destcsH<<8)|destcsL;
+    
+    int stackValueCS = FetchWrittenMemory(1,ss, isp-2);
+    int stackValueIP = FetchWrittenMemory(1,ss, isp-4);
+
+    if (ics != stackValueCS)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", ics, stackValueCS);
+        return 0;
+    }
+    // 5 should be on stack
+    if (5 != stackValueIP)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", 5, stackValueIP);
+        return 0;
+    }
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 4 less
+    if (sp!=isp-4)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp-4, sp);
+        return 0;
+    }
+
+    if ((ip&0xFFFF) != expectedip)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", expectedip, (ip&0xFFFF));
+        return 0;
+    }
+
+    if (cs != expectedcs)
+    {
+        printf("Code Segment Register Mismatch %04X != %04X\n", expectedcs, cs);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidateCallFarRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = regInitVal;
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'L', counter, testCnt);
+    int dispH = Extract(testData,'H', counter, testCnt);
+
+    int instructionLength = 1 + FetchModRMLength(1,1,mod,99,RM);
+
+    int seg,off;
+    ComputeEffectiveAddress(mod,RM,dispL,dispH,&seg,&off);
+
+    int expectedip = FetchReadMemory(1,seg,off);
+    int expectedcs = FetchReadMemory(1,seg,off+2);
+
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int ss = tb->top->biu->REGISTER_SS;
+    int cs = tb->top->biu->REGISTER_CS;
+    int sp = tb->top->eu->SP;
+
+    int iss = FetchInitialSR(ESRReg::SS);
+    int ics = FetchInitialSR(ESRReg::CS);
+    int isp = RegisterNumInitialWord(ERegisterNum::SP);
+    
+    int stackValueCS = FetchWrittenMemory(1,ss, isp-2);
+    int stackValueIP = FetchWrittenMemory(1,ss, isp-4);
+
+    if (ics != stackValueCS)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", ics, stackValueCS);
+        return 0;
+    }
+    if (instructionLength != stackValueIP)
+    {
+        printf("Stack Contents Mismatch %04X != %04X\n", instructionLength, stackValueIP);
+        return 0;
+    }
+    // Stack segment should not change
+    if (ss!=iss)
+    {
+        printf("Stack Segment Register Mismatch %04X != %04X\n", iss, ss);
+        return 0;
+    }
+    // SP should be 4 less
+    if (sp!=isp-4)
+    {
+        printf("Stack Pointer Register Mismatch %04X != %04X\n", isp-4, sp);
+        return 0;
+    }
+
+    if ((ip&0xFFFF) != expectedip)
+    {
+        printf("Instruction Pointer Register Mismatch %04X != %04X\n", expectedip, (ip&0xFFFF));
+        return 0;
+    }
+
+    if (cs != expectedcs)
+    {
+        printf("Code Segment Register Mismatch %04X != %04X\n", expectedcs, cs);
+        return 0;
+    }
+
+    return 1;
+}
+
 
 #define TEST_MULT 4
 
@@ -2862,8 +2987,12 @@ const char* testArray[]={
     "11001111 ",                                                (const char*)ValidateIRet,                      (const char*)RegisterNumSP,     (const char*)0xFFFF,      // iret
     "11001111 ",                                                (const char*)ValidateIRet,                      (const char*)RegisterNumSP,     (const char*)0x1010,      // iret
     "11001111 ",                                                (const char*)ValidateIRet,                      (const char*)RegisterNumSP,     (const char*)0x9090,      // iret
+    "10011010 LLLLLLLL HHHHHHHH llllllll hhhhhhhh ",            (const char*)ValidateCallCD,                    (const char*)RegisterNum,       (const char*)0,           // call cd
+    "11111111 00011mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateCallFarRM,                 (const char*)RegisterNum,       (const char*)0,           // call FAR rm (mod 0)
+    "11111111 01011mmm LLLLLLLL ",                              (const char*)ValidateCallFarRM,                 (const char*)RegisterNum,       (const char*)1,           // call FAR rm (mod 1)
+    "11111111 10011mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateCallFarRM,                 (const char*)RegisterNum,       (const char*)2,           // call FAR rm (mod 2)
 #endif
-    // TODO ADD TESTS FOR  : IRET, HLT, irq
+    // TODO ADD TESTS FOR  : HLT, irq
     0
 };
 

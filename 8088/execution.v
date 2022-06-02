@@ -308,6 +308,8 @@ begin
     end
     else if (inst[7:0] == 8'b11101000)                    // CALL cw
         executionState <= 9'h07c;
+    else if (inst[7:0] == 8'b10011010)                    // CALL cd
+        executionState <= 9'h070;
     else if ({inst[7:5],inst[2:0]} == 6'b000110)          // PUSH sr
         executionState <= 9'h02c;
     else if ({inst[7:5],inst[2:0]} == 6'b000111)          // POP sr
@@ -1514,6 +1516,52 @@ begin
                         executionState<=9'h1fd; // RNI
                     end
 
+//068  BCD   HI   MNOP  S         IND   -> tmpc      1   INC2  tmpc        ?11111011.00   CALL FAR rm
+                9'h068:
+                    begin
+                        // IND->tmpc  INC2 tmpc
+                        tmpc<=IND;
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpC
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_INC2;   // INC2
+                        executionState<=9'h069;
+                    end
+//069 A C  F  I  LM    RSTU       SIGMA -> IND       6   R     DD,P0                     
+                9'h069:
+                    begin
+                        // SIGMA->IND  R DD,P0
+                        IND<=SIGMA;
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h06a;
+                    end
+//06a   CD    IJ  MNOP RS         OPR   -> tmpa      1   DEC2  tmpc                      
+                9'h06A:
+                    begin
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            // OPR->tmpa  DEC2 tmpc
+                            tmpa<=OPRr;
+                            selectShifter<=0;
+                            aluAselect<=2'b10;     // ALUA = tmpC
+                            aluWord<=1'b1;
+                            operation<=ALU_OP_DEC2;   // DEC2
+                            executionState<=9'h06b;
+                        end
+                    end
+
+//06b  BCD FG I  L  OPQR TU       SP    -> tmpc      4   none  SUSP                      FARCALL
+                9'h06B:
+                    begin
+                        // SP->tmpc SUSP
+                        tmpc<=SP;
+                        suspend<=1;
+                        executionState<=9'h06c;
+                    end
 //06c A C  F  I  L  OPQR T        SIGMA -> IND       4   none  CORR        ?11111011.01  FARCALL2
                 9'h06C:
                     begin
@@ -1556,6 +1604,55 @@ begin
                         // PC->OPR  UNC NEARCALL
                         OPRw<=REGISTER_IP;
                         executionState<=9'h077;
+                    end
+
+//070 A C E  HIJ L  OPQRSTU       Q     -> tmpbL                           010011010.00  CALL cd
+                9'h070:
+                    begin
+                        // Q->tmpbL 
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[7:0]<=prefetchTop;
+                            readTop<=1;
+                            executionState<=9'h071;
+                        end
+                    end
+//071 ABC E  HIJ L  OPQRSTU       Q     -> tmpbH                                         
+                9'h071:
+                    begin
+                        // Q->tmpbH
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[15:8]<=prefetchTop;
+                            readTop<=1;
+                            executionState<=9'h072;
+                        end
+                    end
+//072   C E  HIJ  MNOP RS         Q     -> tmpaL     1   DEC2  tmpc                      
+                9'h072:
+                    begin
+                        // Q->tmpaL 
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpa[7:0]<=prefetchTop;
+                            readTop<=1;
+                            selectShifter<=0;
+                            aluAselect<=2'b10;     // ALUA = tmpC
+                            aluWord<=1'b1;
+                            operation<=ALU_OP_DEC2;   // DEC2
+                            executionState<=9'h073;
+                        end
+                    end
+//073  BC E  HIJ L N              Q     -> tmpaH     5   UNC   FARCALL                   
+                9'h073:
+                    begin
+                        // Q->tmpaH  UNC FARCALL
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpa[15:8]<=prefetchTop;
+                            readTop<=1;
+                            executionState<=9'h06b;
+                        end
                     end
 
 //074 A CD F   J L  OPQR TU       M     -> tmpb      4   none  SUSP        ?11111010.00   CALL rm
@@ -4047,6 +4144,8 @@ begin
                                 5'b11001: begin readModifyWrite=1; executionState<=9'h020; end
                                 5'b01010: begin PostEffectiveAddressReturn<=9'h074; executionState<=9'h1f6; end      // CALL rm
                                 5'b11010: begin executionState<=9'h074; end
+                                5'b01011: begin PostEffectiveAddressReturn<=9'h068; executionState<=9'h1f6; end      // CALL FAR rm
+                                5'b11011: begin executionState<=9'h068; end
                                 5'b01100: begin PostEffectiveAddressReturn<=9'h0d8; executionState<=9'h1f6; end      // JMP rm
                                 5'b11100: begin executionState<=9'h0d8; end
                                 5'b01110: begin PostEffectiveAddressReturn<=9'h024; executionState<=9'h1f6; end      // PUSH rm
