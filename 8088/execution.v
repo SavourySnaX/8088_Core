@@ -289,6 +289,19 @@ begin
         PostEffectiveAddressReturn <= 9'h008;
         executionState <= 9'h1f5;
     end
+    else if (inst[7:0] == 8'b11000100)                   // LES r, rm
+    begin
+        instruction[1]<=1;                               // acts as if direction is 1
+        instruction[0]<=1;                               // its a word operation
+        PostEffectiveAddressReturn <= 9'h0f0;
+        executionState <= 9'h1f5;
+    end
+    else if (inst[7:0] == 8'b11000101)                   // LDS r, rm
+    begin
+        instruction[1]<=1;                               // acts as if direction is 1
+        PostEffectiveAddressReturn <= 9'h0f4;
+        executionState <= 9'h1f5;
+    end
     else if (inst[7:1] == 7'b1010101)                    // STOS
         executionState <= 9'h11C;
     else if (inst[7:1] == 7'b1111001)                    // REP
@@ -2761,6 +2774,93 @@ begin
                         ind_readWrite<=1;
                         executionState<=9'h1fd; // RNI
                     end
+//0ee                                                                                    
+//0ef                                                                                    
+
+//0f0 AB  E   IJ L  OPQRSTU       OPR   -> R                               011000100.00  LES
+                9'h0F0:
+                    begin
+                        // OPR->R   // why is this not tmpb->R?
+                        WriteToRegister(1'b1,modrm[5:3],OPRr);
+                        executionState<=9'h0f1;
+                    end
+//0f1  BCD   HI   MNOP  S         IND   -> tmpc      1   INC2  tmpc                      
+                9'h0F1:
+                    begin
+                        // IND->tmpc INC2 tmpc
+                        tmpc<=IND;
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpC
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_INC2;   // INC2
+                        executionState<=9'h0f2;
+                    end
+//0f2 A C  F  I  LM    RSTU       SIGMA -> IND       6   R     DD,P0                     
+                9'h0F2:
+                    begin
+                        // SIGMA->IND  R DD,P0
+                        IND<=SIGMA;
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=1'b1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h0f3;
+                    end
+//0f3         IJ L  OPQR          OPR   -> RA        4   none  RNI                       
+                9'h0F3:
+                    begin
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            // OPR->RA  RNI
+                            UpdateReg<=OPRr;
+                            latchES<=1;
+                            executionState<=9'h1fd; // RNI
+                        end
+                    end
+
+//0f4 AB  E   IJ L  OPQRSTU       OPR   -> R                               011000101.00  LDS
+                9'h0F4:
+                    begin
+                        // OPR->R   // why is this not tmpb->R?
+                        WriteToRegister(1'b1,modrm[5:3],OPRr);
+                        executionState<=9'h0f5;
+                    end
+//0f5  BCD   HI   MNOP  S         IND   -> tmpc      1   INC2  tmpc                      
+                9'h0F5:
+                    begin
+                        // IND->tmpc INC2 tmpc
+                        tmpc<=IND;
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpC
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_INC2;   // INC2
+                        executionState<=9'h0f6;
+                    end
+//0f6 A C  F  I  LM    RSTU       SIGMA -> IND       6   R     DD,P0                     
+                9'h0F6:
+                    begin
+                        // SIGMA->IND  R DD,P0
+                        IND<=SIGMA;
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=1'b1;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h0f7;
+                    end
+//0f7 AB      IJ L  OPQR          OPR   -> RD        4   none  RNI                       
+                9'h0F7:
+                    begin
+                        if (indirectBusOpInProgress==0)
+                        begin
+                            // OPR->RD  RNI
+                            UpdateReg<=OPRr;
+                            latchDS<=1;
+                            executionState<=9'h1fd; // RNI
+                        end
+                    end
+
 //112  BCD FGH    MN    S         BC    -> tmpc      1   PASS  tmpc                      RPTS
                 9'h112:
                     begin

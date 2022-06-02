@@ -3001,6 +3001,69 @@ int ValidateOutADX(const char* testData, int counter, int testCnt, int regInitVa
     return 1;
 }
 
+int ValidateLES(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = regInitVal;
+    int reg = Extract(testData,'R',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'L', counter, testCnt);
+    int dispH = Extract(testData,'H', counter, testCnt);
+
+    int seg,off;
+    ComputeEffectiveAddress(mod,RM,dispL,dispH,&seg,&off);
+
+    int expectedr = FetchReadMemory(1,seg,off);
+    int expectedes = FetchReadMemory(1,seg,off+2);
+
+    int es = tb->top->biu->REGISTER_ES;
+    int r = FetchWordRegister(reg);
+    
+    if (es!=expectedes)
+    {
+        printf("Extra Segment Register Mismatch %04X != %04X\n", expectedes, es);
+        return 0;
+    }
+
+    if (r != expectedr)
+    {
+        printf("Register Mismatch %04X != %04X\n", expectedr, r);
+        return 0;
+    }
+
+    return 1;
+}
+
+int ValidateLDS(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int mod = regInitVal;
+    int reg = Extract(testData,'R',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'L', counter, testCnt);
+    int dispH = Extract(testData,'H', counter, testCnt);
+
+    int seg,off;
+    ComputeEffectiveAddress(mod,RM,dispL,dispH,&seg,&off);
+
+    int expectedr = FetchReadMemory(1,seg,off);
+    int expectedds = FetchReadMemory(1,seg,off+2);
+
+    int ds = tb->top->biu->REGISTER_DS;
+    int r = FetchWordRegister(reg);
+    
+    if (ds!=expectedds)
+    {
+        printf("Data Segment Register Mismatch %04X != %04X\n", expectedds, ds);
+        return 0;
+    }
+
+    if (r != expectedr)
+    {
+        printf("Register Mismatch %04X != %04X\n", expectedr, r);
+        return 0;
+    }
+
+    return 1;
+}
 
 #define TEST_MULT 4
 
@@ -3163,6 +3226,12 @@ const char* testArray[]={
     "11111111 00101mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateJmpFarRM,                  (const char*)RegisterNum,       (const char*)0,           // jmp FAR rm (mod 0)
     "11111111 01101mmm LLLLLLLL ",                              (const char*)ValidateJmpFarRM,                  (const char*)RegisterNum,       (const char*)1,           // jmp FAR rm (mod 1)
     "11111111 10101mmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateJmpFarRM,                  (const char*)RegisterNum,       (const char*)2,           // jmp FAR rm (mod 2)
+    "11000100 00RRRmmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateLES,                       (const char*)RegisterNum,       (const char*)0,           // LES r,m (mod 0)
+    "11000100 01RRRmmm LLLLLLLL ",                              (const char*)ValidateLES,                       (const char*)RegisterNum,       (const char*)1,           // LES r,m (mod 1)
+    "11000100 10RRRmmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateLES,                       (const char*)RegisterNum,       (const char*)2,           // LES r,m (mod 2)
+    "11000101 00RRRmmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateLDS,                       (const char*)RegisterNum,       (const char*)0,           // LDS r,m (mod 0)
+    "11000101 01RRRmmm LLLLLLLL ",                              (const char*)ValidateLDS,                       (const char*)RegisterNum,       (const char*)1,           // LDS r,m (mod 1)
+    "11000101 10RRRmmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateLDS,                       (const char*)RegisterNum,       (const char*)2,           // LDS r,m (mod 2)
 #endif
     // TODO ADD TESTS FOR  : HLT, irq
     0
