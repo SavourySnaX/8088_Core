@@ -25,6 +25,8 @@ static uint32_t latchedAddress;
 static int lastWrite=1,lastRead=1;
 extern Vtop *tb;
 
+int exitStatus = EXIT_SUCCESS;
+
 #define TEST_MULT 6
 
 int GuardCheckDivB(int a,int b, int flagMask, int expected)
@@ -380,6 +382,7 @@ static int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
                         else
                             printf("\nERROR %s %04X,%04X\n",testArray[testPos*TEST_MULT+3],operandA,operandB);
                     }
+                    exitStatus = EXIT_FAILURE;
                     testState=99;
                 }
                 else
@@ -511,5 +514,5 @@ int ArithTestsMain(int argc, char** argv)
 #endif
     delete tb;
 
-	return EXIT_SUCCESS;
+	return exitStatus;
 }
