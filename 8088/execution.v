@@ -1922,6 +1922,7 @@ begin
                 9'h08F:
                     begin
                         tmpb<=SIGMA;
+                        carryIn<=shc;
                         selectShifter<=0;
                         aluAselect<=2'b00;     // ALUA = tmpA
                         aluWord<=1'b1;
