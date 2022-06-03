@@ -3068,12 +3068,12 @@ const char* testArray[]={
     "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)0,           // rot rm,cl (cl=0) (initial carry)
     "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=1) (no initial carry)
     "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=1) (initial carry)
-    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=2) (no initial carry)
-    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=2) (initial carry)
-    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=8) (no initial carry)
-    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=8) (initial carry)
-    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)1,           // rot rm,cl (cl=16) (no initial carry)
-    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)1,           // rot rm,cl (cl=16) (initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)2,           // rot rm,cl (cl=2) (no initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)2,           // rot rm,cl (cl=2) (initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)8,           // rot rm,cl (cl=8) (no initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)8,           // rot rm,cl (cl=8) (initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclNoCarry,          (const char*)RegisterNumCX,     (const char*)16,          // rot rm,cl (cl=16) (no initial carry)
+    "1101001W MMSSSmmm llllllll hhhhhhhh ",                     (const char*)ValidateShiftRMclCarry,            (const char*)RegisterNumCXCarry,(const char*)16,          // rot rm,cl (cl=16) (initial carry)
     "000rr110 ",                                                (const char*)ValidatePushSR,                    (const char*)RegisterNum,       (const char*)0,           // push sr
     "01010rrr ",                                                (const char*)ValidatePushRW,                    (const char*)RegisterNum,       (const char*)0,           // push rw
     "1111011W MM100mmm llllllll hhhhhhhh ",                     (const char*)ValidateMulRM,                     (const char*)RegisterNum,       (const char*)0,           // mul rm 
