@@ -166,10 +166,13 @@ int Reset(Vtop *tb, VerilatedVcdC* trace,int ticks)
     tb->RESET=1;
 
     ticks = doNTicks(tb,trace,ticks,100);
+    tb->RESET=0;
+    tb->top->eu->TRACE_MODE=1;
+    while (tb->top->eu->executionState!=0x1fd)
+        ticks = doNTicks(tb,trace,ticks,100);
     testState=0;
     tb->top->eu->TRACE_MODE=0;
 
-    tb->RESET=0;
 
     return ticks;
 }
@@ -192,9 +195,9 @@ int TestWaitForTEST(Vtop *tb, VerilatedVcdC* trace,int& ticks)
 {
     printf("Testing WAIT instruction Vs TEST_n pin\n");
     // Test Wait
+    ROM[0xFFFF0]=0x9B;
     ticks = Reset(tb,trace,ticks);
     tb->TEST_n=1;
-    ROM[0xFFFF0]=0x9B;
 
     ticks = Tick1000(tb,trace,ticks);
 
@@ -315,9 +318,9 @@ int TestWaitInterrupted(Vtop *tb, VerilatedVcdC* trace,int& ticks)
 {
     printf("Testing WAIT instruction Vs Interrupt\n");
     // Test Wait
+    ROM[0xFFFF0]=0x9B;
     ticks = Reset(tb,trace,ticks);
     tb->TEST_n=1;
-    ROM[0xFFFF0]=0x9B;
     SetupInterruptVector();
     tb->top->eu->FLAGS=0;   // ensure interrupts masked
 
@@ -332,8 +335,8 @@ int TestHalt(Vtop *tb, VerilatedVcdC* trace,int& ticks)
 {
     printf("Testing HALT instruction Vs Interrupt\n");
     // Test Halt
-    ticks = Reset(tb,trace,ticks);
     ROM[0xFFFF0]=0xF4;
+    ticks = Reset(tb,trace,ticks);
     SetupInterruptVector();
     tb->top->eu->FLAGS=0;   // ensure interrupts masked
 
@@ -348,21 +351,73 @@ int TestHalt(Vtop *tb, VerilatedVcdC* trace,int& ticks)
 
     printf("OK\n");
     return 1;
+}
+
+void SetupForRepMemory()
+{
+    tb->top->eu->CX=0xFFFF;
+    tb->top->biu->REGISTER_DS=0x4000;
+    tb->top->biu->REGISTER_ES=0x5000;
+    tb->top->eu->DI=0;
+    tb->top->eu->SI=0;
+}
+
+int TestSTOSInterrupted(Vtop *tb, VerilatedVcdC* trace,int& ticks)
+{
+    printf("Testing STOS instruction Vs Interrupt\n");
+    // Test Halt
+    ROM[0xFFFF0]=0xF3;  // REP
+    ROM[0xFFFF1]=0xAA;  // STOSB
+    ticks = Reset(tb,trace,ticks);
+    SetupInterruptVector();
+    SetupForRepMemory();
+    tb->top->eu->FLAGS=0;   // ensure interrupts masked
+
+    if (!CheckIRQ(tb,trace,ticks,"STOS", 1))
+        return 0;
+
+    printf("OK\n");
+    return 1;
 
 }
 
-/*
-// interrupts during Checks 
+int TestLODSInterrupted(Vtop *tb, VerilatedVcdC* trace,int& ticks)
+{
+    printf("Testing LODS instruction Vs Interrupt\n");
+    // Test Halt
+    ROM[0xFFFF0]=0xF3;  // REP
+    ROM[0xFFFF1]=0xAC;  // LODSB
+    ticks = Reset(tb,trace,ticks);
+    SetupInterruptVector();
+    SetupForRepMemory();
+    tb->top->eu->FLAGS=0;   // ensure interrupts masked
 
-    "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP STOS (CX==0) 
-    "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP STOS (CX==5) 
-    "1111001Z 1010110W ",                                       (const char*)ValidateLODSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP LODS (CX==0)
-    "1111001Z 1010110W ",                                       (const char*)ValidateLODSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP LODS (CX==5)
-    "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP MOVS (CX==0)
-    "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP MOVS (CX==5)
-*/
+    if (!CheckIRQ(tb,trace,ticks,"LODS", 1))
+        return 0;
 
+    printf("OK\n");
+    return 1;
 
+}
+
+int TestMOVSInterrupted(Vtop *tb, VerilatedVcdC* trace,int& ticks)
+{
+    printf("Testing MOVS instruction Vs Interrupt\n");
+    // Test Halt
+    ROM[0xFFFF0]=0xF3;  // REP
+    ROM[0xFFFF1]=0xA4;  // MOVSB
+    ticks = Reset(tb,trace,ticks);
+    SetupInterruptVector();
+    SetupForRepMemory();
+    tb->top->eu->FLAGS=0;   // ensure interrupts masked
+
+    if (!CheckIRQ(tb,trace,ticks,"MOVS", 1))
+        return 0;
+
+    printf("OK\n");
+    return 1;
+
+}
 
 int IrqWaitTestsMain(int argc, char** argv)
 {
@@ -388,6 +443,7 @@ int IrqWaitTestsMain(int argc, char** argv)
     tb->TEST_n=0;
 
     int ticks=1;
+
     if (!TestWaitForTEST(tb,trace,ticks))
     {
         returnCode=EXIT_FAILURE;
@@ -406,7 +462,23 @@ int IrqWaitTestsMain(int argc, char** argv)
         goto end;
     }
 
+    if (!TestSTOSInterrupted(tb,trace,ticks))
+    {
+        returnCode=EXIT_FAILURE;
+        goto end;
+    }
 
+    if (!TestLODSInterrupted(tb,trace,ticks))
+    {
+        returnCode=EXIT_FAILURE;
+        goto end;
+    }
+
+    if (!TestMOVSInterrupted(tb,trace,ticks))
+    {
+        returnCode=EXIT_FAILURE;
+        goto end;
+    }
 end:
 #if TRACE
 	trace->close();

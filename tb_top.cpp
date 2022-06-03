@@ -3030,21 +3030,9 @@ const char* testArray[]={
     "00AAA0DW 11RRRmmm ",                                       (const char*)ValidateAluRMR,                    (const char*)RegisterNum,       (const char*)0x0003,      // alu rm<->r (byte/word) (reg) (no need to check Carry in)
     "00AAA0DW 01RRRmmm llllllll ",                              (const char*)ValidateAluRMR,                    (const char*)RegisterNum,       (const char*)0x0001,      // alu rm<->r (byte/word) (mem) (no need to check Carry in)
     "11111100 ",                                                (const char*)ValidateFlagClear,                 (const char*)SetFlags,          (const char*)(FLAG_D),    // cld
-    "1010101W ",                                                (const char*)ValidateSTOS,                      (const char*)RegisterNumFlags,  (const char*)0,           // STOS (D clear)
-    "1010101W ",                                                (const char*)ValidateSTOS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // STOS (D set)
-    "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP STOS (CX==0) 
-    "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP STOS (CX==5) 
     "1110010W LLLLLLLL ",                                       (const char*)ValidateInA,                       (const char*)DefaultTestInit,   (const char*)0x0000,      // in ib, al/ax
     "1111111W MM000mmm llllllll hhhhhhhh ",                     (const char*)ValidateIncRM,                     (const char*)RegisterNum,       (const char*)0x0000,      // inc rm
     "1111111W MM001mmm llllllll hhhhhhhh ",                     (const char*)ValidateDecRM,                     (const char*)RegisterNum,       (const char*)0x0000,      // dec rm
-    "1010110W ",                                                (const char*)ValidateLODS,                      (const char*)RegisterNumFlags,  (const char*)0,           // LODS (D clear)
-    "1010110W ",                                                (const char*)ValidateLODS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // LODS (D set)
-    "1111001Z 1010110W ",                                       (const char*)ValidateLODSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP LODS (CX==0)
-    "1111001Z 1010110W ",                                       (const char*)ValidateLODSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP LODS (CX==5)
-    "1010010W ",                                                (const char*)ValidateMOVS,                      (const char*)RegisterNumFlags,  (const char*)0,           // MOVS (D clear)
-    "1010010W ",                                                (const char*)ValidateMOVS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // MOVS (D set)
-    "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP MOVS (CX==0)
-    "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP MOVS (CX==5)
     "100000SW 11AAAmmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateAluRMImmediate,            (const char*)RegisterNum,       (const char*)0x0003,      // alu rm,i (reg)
     "100000SW 01AAAmmm llllllll LLLLLLLL HHHHHHHH ",            (const char*)ValidateAluRMImmediate,            (const char*)RegisterNum,       (const char*)0x0001,      // alu rm,i (mem)
     "11111011 ",                                                (const char*)ValidateFlagSet,                   (const char*)ClearFlags,        (const char*)(FLAG_I),    // sti
@@ -3164,7 +3152,20 @@ const char* testArray[]={
     "11000101 01RRRmmm LLLLLLLL ",                              (const char*)ValidateLDS,                       (const char*)RegisterNum,       (const char*)1,           // LDS r,m (mod 1)
     "11000101 10RRRmmm LLLLLLLL HHHHHHHH ",                     (const char*)ValidateLDS,                       (const char*)RegisterNum,       (const char*)2,           // LDS r,m (mod 2)
     "10011011 ",                                                (const char*)ValidateWait,                      (const char*)RegisterNum,       (const char*)0,           // Wait
+    "1010101W ",                                                (const char*)ValidateSTOS,                      (const char*)RegisterNumFlags,  (const char*)0,           // STOS (D clear)
+    "1010101W ",                                                (const char*)ValidateSTOS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // STOS (D set)
+    "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP STOS (CX==0) 
+    "1111001Z 1010101W ",                                       (const char*)ValidateSTOSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP STOS (CX==5) 
+    "1010110W ",                                                (const char*)ValidateLODS,                      (const char*)RegisterNumFlags,  (const char*)0,           // LODS (D clear)
+    "1010110W ",                                                (const char*)ValidateLODS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // LODS (D set)
+    "1111001Z 1010110W ",                                       (const char*)ValidateLODSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP LODS (CX==0)
+    "1111001Z 1010110W ",                                       (const char*)ValidateLODSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP LODS (CX==5)
+    "1010010W ",                                                (const char*)ValidateMOVS,                      (const char*)RegisterNumFlags,  (const char*)0,           // MOVS (D clear)
+    "1010010W ",                                                (const char*)ValidateMOVS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // MOVS (D set)
+    "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP MOVS (CX==0)
+    "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP MOVS (CX==5)
 #endif
+
 
     // END MARKER
     0
