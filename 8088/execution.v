@@ -642,7 +642,6 @@ begin
                     begin
                         if ((prefetchEmpty|indirectBusOpInProgress)==0)
                         begin
-                            tmpc<=CX;     // MOVED This from 112, we shouldn't reload this every iteration
                             repeatF<=1;
                             repeatFZ<=instruction[0];
                             instruction<=prefetchTop;
@@ -2929,7 +2928,7 @@ begin
 //112  BCD FGH    MN    S         BC    -> tmpc      1   PASS  tmpc                      RPTS
                 9'h112:
                     begin
-                        //tmpc<=CX;     // MOVED This to the REP instruction, we shouldn't reload this every iteration
+                        tmpc<=CX; 
                         selectShifter<=0;
                         aluAselect<=2'b10;     // ALUA = tmpC
                         aluWord<=1'b1;
@@ -2939,31 +2938,66 @@ begin
 //113 ABC  F  I   MNO  RS         SIGMA -> no dest   1   DEC   tmpc                      
                 9'h113:
                     begin
+                        carryIn<=fz;    // Save for test at 114
                         selectShifter<=0;
                         aluAselect<=2'b10;     // ALUA = tmpC
                         aluWord<=1'b1;
                         operation<=ALU_OP_DEC;   // DEC (for next iteration)
-                        if (fz)
-                            executionState<=9'h115;
-                        else
-                            executionState<=9'h114;
+                        executionState<=9'h114;
                     end
 //114 ABC  F HI    N P R T                           0   NZ      10        011010111.10  
                 9'h114:
                     begin
-                        executionState<=9'h116;
+                        if (carryIn==0) // checking result of zero from PASS A
+                            executionState<=9'h116;
+                        else
+                            executionState<=9'h115;
                     end
 //115 ABC  F HI  L  OPQR                             4   none  RNI     
                 9'h115:
                     begin
-                        if (repeatF)
-                            CX<=tmpc;
                         executionState<=9'h1fd; // RNI
                     end
 //116 ABC  F HI  L  OPQRS                            4   none  RTN                       
                 9'h116:
                     begin
                         executionState<=PostEffectiveAddressReturn;
+                    end
+//117 ABC  F HI  L  OPQRSTU                                                              
+
+//118 A  DE G IJ L  OPQR TU       tmpc  -> BC        4   none  SUSP        011010111.11  RPTI
+                9'h118:
+                    begin
+                        CX<=tmpc;
+                        suspend<=1;
+                        executionState<=9'h119;
+                    end
+//119 ABC  F HI  L  OPQR T                           4   none  CORR                      
+                9'h119:
+                    begin
+                        // CORR
+                        correct<=1;
+                        executionState<=9'h11a;
+                    end
+//11a A CD    I   MNOP R T        PC    -> tmpb      1   DEC2  tmpb                      
+                9'h11A:
+                    begin
+                        // PC->tmpb DEC2 tmpb
+                        tmpb<=REGISTER_IP;
+                        selectShifter<=0;
+                        aluAselect<=2'b01;     // ALUA = tmpb
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_DEC2;   // DEC2
+                        executionState<=9'h11b;
+                    end
+//11b   C  F  I  L     R          SIGMA -> PC        4   FLUSH RNI                       
+                9'h11B:
+                    begin
+                        // SIGMA->PC   FLUSH  RNI
+                        UpdateReg<=SIGMA;
+                        latchPC<=1;
+                        flush<=1;
+                        executionState<=9'h1fd; // RNI
                     end
 
 //11c A C  FGHIJ LMNO Q   U       IK    -> IND       7   F1    RPTS        01010101?.00  STOS
@@ -3008,8 +3042,10 @@ begin
                 9'h11F:
                     begin
                         tmpc<=SIGMA;
-                        // TODO REP interrupt checks
-                        executionState<=9'h11c;
+                        if (irqPending & FLAGS[FLAG_I_IDX]) // TODO NMI
+                            executionState<=9'h118; //RPTI
+                        else
+                            executionState<=9'h1f0; // STOS continue
                     end
 
 //12c ABC  F HI  LMNO Q   U                          7   F1    RPTS        01010?10?.00  MOVS/LODS
@@ -3043,7 +3079,7 @@ begin
                             SI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
                             
                             if (instruction[3]==1)
-                                executionState<= 9'h1f8;    // LODS
+                                executionState<= 9'h1f8;    // MOVS/LODS continued
                             else
                                 executionState<=9'h12f;
                         end
@@ -3063,13 +3099,13 @@ begin
 //130 ABCDE  HI    N  Q STU       IND   -> IK        0   NF1      7        01010?10?.01  
                 9'h130:
                     begin
-                        if ((indirectBusOpInProgress)==0) // should we wait here?? or at 12f which would allow better throughput
+                        if ((indirectBusOpInProgress)==0)
                         begin
                             // Adjusted IND value here - probably via BIU originally, for now, just do adjustment directly
                             DI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
                             
                             if (~repeatF)
-                                executionState<= 9'h133;
+                                executionState<= 9'h133;    //NF1 7
                             else
                                 executionState<=9'h131;
                         end
@@ -3078,10 +3114,20 @@ begin
                 9'h131:
                     begin
                         tmpc<=SIGMA;
-                        // TODO REP interrupt checks
-                        executionState<=9'h12c; // running on would also work, and would make sense with the fetching of BC per REP - TODO come back and recheck
+                        if (irqPending & FLAGS[FLAG_I_IDX]) // TODO NMI
+                            executionState<=9'h118; //RPTI
+                        else
+                            executionState<=9'h132;
                     end
 //132 A  DE G IJ   N P    U       tmpc  -> BC        0   NZ       1                      
+                9'h132:
+                    begin
+                        CX<=tmpc;
+                        if (fc==0)
+                            executionState<=9'h12d;
+                        else
+                            executionState<=9'h133;
+                    end
 //133 ABC  F HI  L  OPQR                             4   none  RNI             
                 9'h133:
                     begin
@@ -4446,6 +4492,22 @@ begin
                         end
                     end
 
+//1f0 A  DE G IJ   N P    U       tmpc  -> BC        0   NZ       1        01010101?.01  STOS continued
+                9'h1F0:
+                    begin
+                        // tmpc->BC NZ 
+                        CX<=tmpc;
+                        if (carryIn==0) // checking result of zero from PASS A
+                            executionState<=9'h11c;
+                        else
+                            executionState<=9'h1f1;
+                    end
+//1f1 ABC  F HI  L  OPQR                             4   none  RNI                       
+                9'h1F1:
+                    begin
+                        executionState<=9'h1fd; //RNI
+                    end
+
 //1f2 (NOT REAL mOP) EAFINISH
                 9'h1F2:
                     begin
@@ -4580,6 +4642,8 @@ begin
                     begin
                         executionState<=9'h1fd; // RNI
                     end
+
+//1fa   C E  HI K M O Q S         IND   -> tmpaL     1   LRCY  tmpc     F                /// ? ?  ?
 
 //1fb (NOT REAL mOP) - Used for HLT
                 9'h1FB:
