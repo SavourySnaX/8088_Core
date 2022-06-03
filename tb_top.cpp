@@ -17,7 +17,7 @@
 
 #define IRQ_WAIT_TESTS 1
 #define ARITH_TESTS 1
-#define UNIT_TEST 1
+#define UNIT_TESTS 1
 #define ALL_TESTS 1
 
 #define CLK_DIVISOR 8
