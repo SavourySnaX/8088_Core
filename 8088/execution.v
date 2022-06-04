@@ -350,6 +350,10 @@ begin
         PostEffectiveAddressReturn <= 9'h00c;
         executionState <= 9'h1f5;
     end
+    else if ({inst[7:4],inst[2:0]} == 7'b0010111)         // DAA/DAS
+        executionState <= 9'h144;
+    else if ({inst[7:4],inst[2:0]} == 7'b0011111)         // AAA/AAS
+        executionState <= 9'h148;
     else if (inst[7:0] == 8'b11010111)                    // XLAT
         executionState <= 9'h10c;
     else if (inst[7:0] == 8'b11101000)                    // CALL cw
@@ -3525,6 +3529,132 @@ begin
                 9'h143:
                     begin
                         // RNI
+                        executionState<=9'h1fd; //RNI
+                    end
+//144   C E G     MN   R          A     -> tmpaL     1   XI    tmpa        00010?111.00  DAA/DAS
+                9'h144:
+                    begin
+                        // A->tmpaL  XI tmpa
+                        tmpa[7:0]<=AX[7:0];
+
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord<=0;
+                        operation<=instruction[3]?ALU_OP_SUB:ALU_OP_ADD;
+
+                        executionState<=9'h145;
+                    end
+//145 A CD F HI  L  OPQRSTU       ONES  -> tmpb                                          
+                9'h145:
+                    begin
+                        // ONES->tmpb  (treating as Modifier for standard ADD/SUB as I don't have seperate ALU ops for DAA/DAS/AAA etc)
+                        case ({(tmpa>8'h99) | FLAGS[FLAG_C_IDX],(tmpa[3:0]>4'h9) | FLAGS[FLAG_A_IDX]})
+                            2'b00: tmpb<=8'h00; 
+                            2'b01: tmpb<=8'h06;
+                            2'b10: tmpb<=8'h60;
+                            2'b11: tmpb<=8'h66;
+                        endcase
+
+                        executionState<=9'h146;
+                    end
+//146    D F  I K M       U       SIGMA -> A         1   ADD   tmpa, NX F                
+                9'h146:
+                    begin
+                        // SIGMA->A  (ADD) F
+                        AX[7:0]<=SIGMA[7:0];
+
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_P_MSK;
+
+                        FLAGS[FLAG_A_IDX]<=(tmpb[3:0]==4'h6);
+                        FLAGS[FLAG_C_IDX]<=(tmpb[7:0]!=8'h00);
+
+                        executionState<=9'h147;
+                    end
+//147 ABC  F HI  L  OPQR                             4   none  RNI                       
+                9'h147:
+                    begin
+                        executionState<=9'h1fd; //RNI
+                    end
+
+//148   C E G     MN   R          A     -> tmpaL     1   XI    tmpa        00011?111.00  AAA/AAS
+                9'h148:
+                    begin
+                        // A->tmpaL  XI tmpa
+                        tmpa[7:0]<=AX[7:0];
+
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord<=0;
+                        operation<=instruction[3]?ALU_OP_SUB:ALU_OP_ADD;
+
+                        executionState<=9'h149;
+                    end
+//149 A CD F HI  L  OPQRSTU       ONES  -> tmpb                                          
+                9'h149:
+                    begin
+                        // ONES->tmpb  (treating as Make Modifier for standard ADD/SUB as I don't have seperate ALU ops for DAA/DAS/AAA etc)
+                        if ((tmpa[3:0]>4'h9) | FLAGS[FLAG_A_IDX])
+                            tmpb<=8'h06;
+                        else
+                            tmpb<=8'h00;
+
+                        executionState<=9'h14a;
+                    end
+//14a    D F  I K MNO  R T        SIGMA -> A         1   DEC   tmpb     F                
+                9'h14A:
+                    begin
+                        // SIGMA->A  DEC F
+                        AX[7:0]<=SIGMA[3:0];    // Clearing upper 4 bits
+
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_P_MSK;
+
+                        FLAGS[FLAG_A_IDX]<=(tmpb[3:0]==4'h6);
+                        FLAGS[FLAG_C_IDX]<=(tmpb[3:0]==4'h6);
+
+                        selectShifter<=0;
+                        aluAselect<=2'b01;     // ALUA = tmpb
+                        aluWord<=0;
+                        operation<=ALU_OP_DEC;
+
+                        executionState<=9'h14b;
+                    end
+//14b ABC  F HI    N PQ S U                          0   X0       5                      
+                9'h14B:
+                    begin
+                        // X0 5
+                        if (instruction[3]==1)
+                            executionState<=9'h14d;
+                        else
+                            executionState<=9'h14c;
+                    end
+//14c ABC  F HI   MNO    T                           1   INC   tmpb        00011?111.01  
+                9'h14C:
+                    begin
+                        operation<=ALU_OP_INC;
+                        executionState<=9'h14d;
+                    end
+//14d A CD F       NO   STU       X     -> tmpb      0   NCY      7                      
+                9'h14D:
+                    begin
+                        tmpb[7:0]<=AX[15:8];
+                        if (FLAGS[FLAG_C_IDX]==0)
+                            executionState<=9'h14f;
+                        else
+                            executionState<=9'h14e;
+                    end
+//14e     EF  I  L  OPQR          SIGMA -> X         4   none  RNI                       
+                9'h14E:
+                    begin
+                        AX[15:8]<=SIGMA[7:0];
+                        executionState<=9'h1fd; //RNI
+                    end
+//14f ABC  F HI  L  OPQR                             4   none  RNI                       
+                9'h14F:
+                    begin
                         executionState<=9'h1fd; //RNI
                     end
 

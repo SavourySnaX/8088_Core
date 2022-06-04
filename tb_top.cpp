@@ -3340,6 +3340,36 @@ int ValidateLoopENE(const char* testData, int counter, int testCnt, int regInitV
     return 1;
 }
 
+int ValidateDAADAS(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int expectedAL = RegisterNumInitialWord(ERegisterNum::AX)>>8;
+    int expectedFlags = regInitVal>>16;
+
+    int resultAL = FetchByteRegister(ERegisterNum::AX);
+
+    return resultAL == expectedAL && TestFlags(tb->top->eu->FLAGS,expectedFlags,FLAG_S|FLAG_Z|FLAG_P|FLAG_C|FLAG_A);
+}
+
+int ValidateAAAAAS(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int expectedAL = (RegisterNumInitialWord(ERegisterNum::AX)>>4)&0xF;
+    int expectedAH = RegisterNumInitialWord(ERegisterNum::AX)>>8;
+
+    int expectedFlags = regInitVal>>16;
+
+    if (expectedFlags&FLAG_C)
+    {
+        expectedAH = (expectedFlags&FLAG_S)?expectedAH-1:expectedAH+1;
+    }
+
+    int resultAL = FetchByteRegister(ERegisterNum::AX);
+    int resultAH = FetchWordRegister(ERegisterNum::AX)>>8;
+
+    printf("\n%02X==%02X %02X==%02X %04X==%04X\n",resultAL,expectedAL,resultAH,expectedAH, tb->top->eu->FLAGS, expectedFlags);
+
+    return resultAH == expectedAH && resultAL == expectedAL && TestFlags(tb->top->eu->FLAGS,expectedFlags,FLAG_C|FLAG_A);
+}
+
 
 #define TEST_MULT 4
 
@@ -3534,6 +3564,13 @@ const char* testArray[]={
     "1110000Z llllllll ",                                       (const char*)ValidateLoopENE,                   (const char*)CXFlags,           (const char*)0x00000000,              // loop(e/ne)
     "1110000Z llllllll ",                                       (const char*)ValidateLoopENE,                   (const char*)CXFlags,           (const char*)(0x00010000 | FLAG_Z),   // loop(e/ne)
     "1110000Z llllllll ",                                       (const char*)ValidateLoopENE,                   (const char*)CXFlags,           (const char*)(0x00000000 | FLAG_Z),   // loop(e/ne)
+    "00100111 ",                                                (const char*)ValidateDAADAS,                    (const char*)RegisterNumAX,     (const char*)(0x14AE|((FLAG_C|FLAG_P|FLAG_A)<<16)), // DAA
+    "00100111 ",                                                (const char*)ValidateDAADAS,                    (const char*)RegisterNumAX,     (const char*)(0x342E|((FLAG_C|FLAG_A)<<16)),        // DAA
+    "00101111 ",                                                (const char*)ValidateDAADAS,                    (const char*)RegisterNumAX,     (const char*)(0x88EE|((FLAG_C|FLAG_P|FLAG_A|FLAG_S)<<16)), // DAS
+    "00110111 ",                                                (const char*)ValidateAAAAAS,                    (const char*)RegisterNumAX,     (const char*)(0x8022),                          // AAA
+    "00110111 ",                                                (const char*)ValidateAAAAAS,                    (const char*)RegisterNumAX,     (const char*)(0x802C|((FLAG_C|FLAG_A)<<16)),    // AAA
+    "00111111 ",                                                (const char*)ValidateAAAAAS,                    (const char*)RegisterNumAX,     (const char*)(0x8022|((FLAG_S)<<16)),           // AAS
+    "00111111 ",                                                (const char*)ValidateAAAAAS,                    (const char*)RegisterNumAX,     (const char*)(0x809F|((FLAG_C|FLAG_A|FLAG_S)<<16)), // AAS
 #endif
     // END MARKER
     0
