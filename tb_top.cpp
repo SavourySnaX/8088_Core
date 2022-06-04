@@ -3365,10 +3365,41 @@ int ValidateAAAAAS(const char* testData, int counter, int testCnt, int regInitVa
     int resultAL = FetchByteRegister(ERegisterNum::AX);
     int resultAH = FetchWordRegister(ERegisterNum::AX)>>8;
 
-    printf("\n%02X==%02X %02X==%02X %04X==%04X\n",resultAL,expectedAL,resultAH,expectedAH, tb->top->eu->FLAGS, expectedFlags);
-
     return resultAH == expectedAH && resultAL == expectedAL && TestFlags(tb->top->eu->FLAGS,expectedFlags,FLAG_C|FLAG_A);
 }
+
+int ValidateAAD(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int immediateValueL = Extract(testData,'L', counter, testCnt);
+
+    int initAL = regInitVal&0xFF;
+    int initAH = (regInitVal>>8)&0xFF;
+
+    int resultAL = FetchByteRegister(ERegisterNum::AX);
+    int resultAH = FetchWordRegister(ERegisterNum::AX)>>8;
+
+    int expectedAL = (initAL + (initAH * immediateValueL))&0xFF;
+
+    if (resultAH!=0)
+        return 0;
+
+    return resultAL==expectedAL;
+}
+
+int ValidateAAM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int initAL = regInitVal&0xFF;
+    int imm8 = (regInitVal>>8)&0xFF;
+
+    int resultAL = FetchByteRegister(ERegisterNum::AX);
+    int resultAH = FetchWordRegister(ERegisterNum::AX)>>8;
+
+    int expectedAH = initAL / imm8;
+    int expectedAL = initAL % imm8;
+
+    return resultAL==expectedAL && resultAH==expectedAH;
+}
+
 
 
 #define TEST_MULT 4
@@ -3571,6 +3602,15 @@ const char* testArray[]={
     "00110111 ",                                                (const char*)ValidateAAAAAS,                    (const char*)RegisterNumAX,     (const char*)(0x802C|((FLAG_C|FLAG_A)<<16)),    // AAA
     "00111111 ",                                                (const char*)ValidateAAAAAS,                    (const char*)RegisterNumAX,     (const char*)(0x8022|((FLAG_S)<<16)),           // AAS
     "00111111 ",                                                (const char*)ValidateAAAAAS,                    (const char*)RegisterNumAX,     (const char*)(0x809F|((FLAG_C|FLAG_A|FLAG_S)<<16)), // AAS
+    "11010101 LLLLLLLL ",                                       (const char*)ValidateAAD,                       (const char*)RegisterNumAX,     (const char*)0x0000,        // AAD
+    "11010101 LLLLLLLL ",                                       (const char*)ValidateAAD,                       (const char*)RegisterNumAX,     (const char*)0x0102,        // AAD
+    "11010101 LLLLLLLL ",                                       (const char*)ValidateAAD,                       (const char*)RegisterNumAX,     (const char*)0xFFFF,        // AAD
+    "11010100 00001010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x0A00,        // AAM
+    "11010100 00001010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x0A02,        // AAM
+    "11010100 00001010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x0AFF,        // AAM
+    "11010100 00000010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x0200,        // AAM
+    "11010100 00000010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x0202,        // AAM
+    "11010100 00000010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x02FF,        // AAM
 #endif
     // END MARKER
     0

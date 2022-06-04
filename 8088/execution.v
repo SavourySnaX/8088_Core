@@ -364,6 +364,10 @@ begin
         executionState <= 9'h02c;
     else if ({inst[7:5],inst[2:0]} == 6'b000111)          // POP sr
         executionState <= 9'h038;
+    else if (inst[7:0] == 8'b11010101)                    // AAD
+        executionState <= 9'h170;
+    else if (inst[7:0] == 8'b11010100)                    // AAM
+        executionState <= 9'h174;
     else if (inst[7:0] == 8'b11010110)                    // SALC
         executionState <= 9'h0a0;
     else if (inst[7:0] == 8'b11000011)                    // RET
@@ -3981,6 +3985,107 @@ begin
                         DX<=tmpa;
                         executionState<=9'h1fd; // RNI
                     end
+
+//170  BCD   HIJ L  OPQRSTU       Q     -> tmpc                            011010101.00  AAD
+                9'h170:
+                    begin
+                        // Q->tmpc
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpc<=prefetchTop;
+                            readTop<=1;
+                            executionState<=9'h171;
+                        end
+                    end
+//171 A CD F     LMN     T        X     -> tmpb      7   UNC   CORX                      
+                9'h171:
+                    begin
+                        // X->tmpb  UNC CORX
+                        tmpb<=AX[15:8];
+                        PostEffectiveAddressReturn<=9'h172;
+                        executionState<=9'h17f;
+                    end
+//172 A CD  G     M     S         A     -> tmpb      1   ADD   tmpc                      
+                9'h172:
+                    begin
+                        // A->tmpb ADD tmpc
+                        tmpb<=AX[7:0];
+
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord<=0;
+                        operation<=ALU_OP_ADD;
+
+                        executionState<=9'h173;
+                    end
+//173     EF HIJ L N   R  U       ZERO  -> X         5   UNC   AAEND                     
+                9'h173:
+                    begin
+                        AX[15:8]<=8'h00;
+                        executionState<=9'h179;
+                    end
+
+//174 A CD   HIJ L  OPQRSTU       Q     -> tmpb                            011010100.00  AAM
+                9'h174:
+                    begin
+                        // Q->tmpb
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb<=prefetchTop;
+                            readTop<=1;
+                            executionState<=9'h175;
+                        end
+                    end
+//175   CD F HIJ L  OPQRSTU       ZERO  -> tmpa                                          
+                9'h175:
+                    begin
+                        // ZERO -> tmpa
+                        tmpa<=16'h0000;
+                        executionState<=9'h176;
+                    end
+//176  BCD  G    LMN     TU       A     -> tmpc      7   UNC   CORD                      
+                9'h176:
+                    begin
+                        tmpc<=AX[7:0];
+                        // UNC CORD
+                        PostEffectiveAddressReturn<=9'h177;
+                        executionState<=9'h188; //CORD
+                    end
+//177 ABC  F HI   MNO Q S                            1   COM1  tmpc                      
+                9'h177:
+                    begin
+                        // COM1 tmpc
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=0;
+                        operation<=ALU_OP_NOT;
+                        executionState<=9'h178;
+                    end
+//178     EF  I   MN      U       SIGMA -> X         1   PASS  tmpa, NX    011010100.01  
+                9'h178:
+                    begin
+                        //SIGMA->X PASS tmpa
+                        AX[15:8]<=SIGMA[7:0];
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluWord<=0;
+                        operation<=ALU_OP_PASS;   // PASS A
+                        executionState<=9'h179;
+                    end
+//179    D F  I KL  OPQR          SIGMA -> A         4   none  RNI      F                AAEND
+                9'h179:
+                    begin
+                        // SIGMA->A  F RNI
+                        AX[7:0]<=SIGMA[7:0];
+                        
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+
+                        executionState<=9'h1fd; // RNI
+                    end
+//17a                                                                                    
+//17b                                                                                    
 
 //17c A CD F   J  MN   R TU       M     -> tmpb      1   XI    tmpb, NX    00100????.00  INC/DEC
                 9'h17C:
