@@ -412,6 +412,12 @@ void RegisterNum3(int regInitVal)
     LoadRegisters();
 }
 
+void CXFlags(int regInitVal)
+{
+    tb->top->eu->CX=regInitVal>>16;
+    tb->top->eu->FLAGS=regInitVal&0xFFFF;
+}
+
 void RegisterNumAX(int regInitVal)
 {
     RegisterNum(regInitVal);
@@ -3298,6 +3304,41 @@ int ValidateSCASREP(const char* testData, int counter, int testCnt, int regInitV
     return (finalCX==(count&0xFFFF));
 }
 
+int ValidateJCXZ(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int immediateValueL = SignExt8Bit(Extract(testData,'l', counter, testCnt));
+
+    int ip = tb->top->biu->REGISTER_IP;
+
+    if (FetchWordRegister(ERegisterNum::CX)==0)
+        return (ip) == ((0x0002 + immediateValueL)&0xFFFF);
+    return (ip) == 0x0002;
+}
+
+int ValidateLoopENE(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int z = Extract(testData,'Z',counter,testCnt);
+    int immediateValueL = SignExt8Bit(Extract(testData,'l', counter, testCnt));
+    int ip = (tb->top->biu->REGISTER_IP)&0xFFFF;
+
+    int zeroFlag = tb->top->eu->FLAGS & FLAG_Z?1:0;
+    int shouldJump = (tb->top->eu->CX!=0) && (z==zeroFlag);
+    int expected=shouldJump?(2+immediateValueL)&0xFFFF:2;
+
+    int expectedCX = (((regInitVal-0x10000)>>16)&0xFFFF);
+
+    if (tb->top->eu->CX != expectedCX)
+    {
+        printf("Failed - CX != initial CX -1   (%04X)!=(%04X)\n", tb->top->eu->CX,expectedCX);
+        return 0;
+    }
+    if (ip!=expected)
+    {
+        printf("Failed - IP != Expected IP     (%04X)!=(%04X)\n", ip,expected);
+        return 0;
+    }
+    return 1;
+}
 
 
 #define TEST_MULT 4
@@ -3487,6 +3528,12 @@ const char* testArray[]={
     "1010111W ",                                                (const char*)ValidateSCAS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // SCAS (D set)
     "1111001Z 1010111W ",                                       (const char*)ValidateSCASREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REPE/NE SCAS (CX==0)
     "1111001Z 1010111W ",                                       (const char*)ValidateSCASREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REPE/NE SCAS (CX==5)
+    "11100011 llllllll ",                                       (const char*)ValidateJCXZ,                      (const char*)RegisterNumCX,     (const char*)0x0000,      // JCXZ
+    "11100011 llllllll ",                                       (const char*)ValidateJCXZ,                      (const char*)RegisterNumCX,     (const char*)0x1000,      // JCXZ
+    "1110000Z llllllll ",                                       (const char*)ValidateLoopENE,                   (const char*)CXFlags,           (const char*)0x00010000,              // loop(e/ne)
+    "1110000Z llllllll ",                                       (const char*)ValidateLoopENE,                   (const char*)CXFlags,           (const char*)0x00000000,              // loop(e/ne)
+    "1110000Z llllllll ",                                       (const char*)ValidateLoopENE,                   (const char*)CXFlags,           (const char*)(0x00010000 | FLAG_Z),   // loop(e/ne)
+    "1110000Z llllllll ",                                       (const char*)ValidateLoopENE,                   (const char*)CXFlags,           (const char*)(0x00000000 | FLAG_Z),   // loop(e/ne)
 #endif
     // END MARKER
     0

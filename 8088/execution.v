@@ -249,8 +249,15 @@ begin
         executionState <= 9'h0D0;
     else if (inst == 8'b11101010)                        // JMP offs segment
         executionState <= 9'h0E0;
+    else if (inst[7:1] == 7'b1110000)                    // LOOPE/NE
+    begin
+        repeatFZ<=inst[0];
+        executionState <= 9'h138;
+    end
     else if (inst == 8'b11100010)                        // LOOP
         executionState <= 9'h140;
+    else if (inst == 8'b11100011)                        // JCXZ
+        executionState <= 9'h134;
     else if (inst == 8'b10011110)                        // SAHF
         executionState <= 9'h100;
     else if (inst == 8'b10011111)                        // LAHF
@@ -3392,6 +3399,95 @@ begin
                         executionState<=9'h1fd; // RNI
                     end
 
+//134  BCD FGH    MN    S         BC    -> tmpc      1   PASS  tmpc        011100011.00  JCXZ
+                9'h134:
+                    begin
+                        // BC->tmpc  PASS tmpc
+                        tmpc<=CX;
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=1;
+                        operation<=ALU_OP_PASS;   // PASS
+                        executionState<=9'h135;
+                    end
+//135 ABC  F  I  L  OPQRSTU       SIGMA -> no dest                                       
+                9'h135:
+                    begin
+                        // SIGMA->no dest
+                        executionState<=9'h136;
+                    end
+//136 A C E  HIJ   N P  S         Q     -> tmpbL     0   NZ       4                      
+                9'h136:
+                    begin
+                        // Q -> tmpbL
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[7:0]<=prefetchTop;
+                            tmpb[15:8]<={8{prefetchTop[7]}};
+                            readTop<=1;
+                            if (fz==0)
+                                executionState<=9'h1fc; // JCX continued
+                            else
+                                executionState<=9'h137;
+                        end
+                    end
+//137 ABC  F HI  L N     T                           5   UNC   RELJMP                    
+                9'h137:
+                    begin
+                        // UNC RELJMP
+                        executionState<=9'h0D2; // RELJMP
+                    end
+
+//138  BCD FGH    MNO  RS         BC    -> tmpc      1   DEC   tmpc        01110000?.00  LOOPNE/LOOPE
+                9'h138:
+                    begin
+                        // BC->tmpc
+                        tmpc<=CX;
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_DEC; // DEC A
+                        executionState<=9'h139;
+                    end
+//139 A  DEF  I  L  OPQRSTU       SIGMA -> BC                                            
+                9'h139:
+                    begin
+                        // SIGMA -> BC
+                        CX<=SIGMA;
+                        executionState<=9'h13a;
+                    end
+//13a A C E  HIJ        S         Q     -> tmpbL     0   F1ZZ     4                      
+                9'h13A:
+                    begin
+                        // Q -> tmpbL
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[7:0]<=prefetchTop;
+                            tmpb[15:8]<={8{prefetchTop[7]}};
+                            readTop<=1;
+                            if (FLAGS[FLAG_Z_IDX]!=repeatFZ)
+                                executionState<=9'h13c;
+                            else
+                                executionState<=9'h13b;
+                        end
+                    end
+//13b ABC  F HI  L N P   T                           5   NZ    RELJMP                    
+                9'h13B:
+                    begin
+                        if (fz==0)
+                            executionState<=9'h0D2; // RELJMP
+                        else
+                            executionState<=9'h13c;
+                    end
+//13c ABC  F HI  L  OPQR                             4   none  RNI         01110000?.01  
+                9'h13C:
+                    begin
+                        executionState<=9'h1fd; //RNI
+                    end
+//13d                                                                                    
+//13e                                                                                    
+//13f                                                                                    
+
 //140  BCD FGH    MNO  RS         BC    -> tmpc      1   DEC   tmpc        011100010.00  LOOP
                 9'h140:
                     begin
@@ -3408,7 +3504,7 @@ begin
                     begin
                         // SIGMA -> BC
                         CX<=SIGMA;
-                        executionState<=9'h142; // RNI
+                        executionState<=9'h142;
                     end
 //142 A C E  HIJ L N P   T        Q     -> tmpbL     5   NZ    RELJMP                    
                 9'h142:
@@ -4913,6 +5009,12 @@ begin
                     begin
                         if ((irqPending & FLAGS[FLAG_I_IDX])) // TODO other interrupt sources
                             executionState<=9'h1fd; // RNI
+                    end
+
+//1fc ABC  F HI  L  OPQR                             4   none  RNI         011100011.01  JCXZ continued
+                9'h1FC:
+                    begin
+                        executionState<=9'h1fd; //RNI
                     end
 
 //1fd (NOT REAL mOP)
