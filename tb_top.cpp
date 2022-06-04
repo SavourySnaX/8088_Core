@@ -2996,6 +2996,62 @@ int ValidateWait(const char* testData, int counter, int testCnt, int regInitVal)
     return 1;   // For now, we have the TEST pin held such that the instruction acts as a NOP
 }
 
+int ValidateSAHF(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int ah=RegisterNumInitialWord(ERegisterNum::AX)>>8;
+    int flags=tb->top->eu->FLAGS & 0xFF;
+
+    return ah==flags;
+}
+
+int ValidateLAHF(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int ah=FetchWordRegister(ERegisterNum::AX)>>8;
+    int flags=regInitVal&0xFF;
+
+    return ah==flags;
+}
+
+int ValidateEscRM(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = 1;   // Always a word fetch?
+    int mod = Extract(testData,'M',counter,testCnt);
+    int RM = Extract(testData,'m',counter,testCnt);
+    int dispL = Extract(testData,'l', counter, testCnt);
+    int dispH = Extract(testData,'h', counter, testCnt);
+
+    int opAValue = FetchSourceValue(1,word,mod,99,RM,dispL,dispH);
+    return opAValue!=-1;
+}
+
+int ValidateXLAT(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int base = RegisterNumInitialWord(ERegisterNum::BX);
+    int off = RegisterNumInitialByte(ERegisterNum::AX);
+
+    int seg = FetchInitialSR(segOverride);
+    
+    int load = FetchReadMemory(0,seg,(base+off)&0xFFFF);
+
+    int check = FetchByteRegister(ERegisterNum::AX);
+    return check==load;
+}
+
+int ValidateXLATPrefixed(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    segOverride = Extract(testData,'R',counter,testCnt);
+
+    int base = RegisterNumInitialWord(ERegisterNum::BX);
+    int off = RegisterNumInitialByte(ERegisterNum::AX);
+
+    int seg = FetchInitialSR(segOverride);
+    
+    int load = FetchReadMemory(0,seg,(base+off)&0xFFFF);
+
+    int check = FetchByteRegister(ERegisterNum::AX);
+    return check==load;
+}
+
 #define TEST_MULT 4
 
 const char* testArray[]={ 
@@ -3164,9 +3220,19 @@ const char* testArray[]={
     "1010010W ",                                                (const char*)ValidateMOVS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // MOVS (D set)
     "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REP MOVS (CX==0)
     "1111001Z 1010010W ",                                       (const char*)ValidateMOVSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REP MOVS (CX==5)
+    "10011110 ",                                                (const char*)ValidateSAHF,                      (const char*)RegisterNumFlags,  (const char*)0,           // SAHF
+    "10011111 ",                                                (const char*)ValidateLAHF,                      (const char*)RegisterNumFlags,  (const char*)(0xAA55),    // LAHF
+    "11011OOO MMooommm llllllll hhhhhhhh ",                     (const char*)ValidateEscRM,                     (const char*)RegisterNum,       (const char*)0,           // ESC rm (OOOooo 6bit instruction code)
+    "11010111 ",                                                (const char*)ValidateXLAT,                      (const char*)RegisterNumAX,     (const char*)0,           // XLAT
+    "11010111 ",                                                (const char*)ValidateXLAT,                      (const char*)RegisterNumAX,     (const char*)0xFF,        // XLAT
+    "11010111 ",                                                (const char*)ValidateXLAT,                      (const char*)RegisterNumAX,     (const char*)0x01,        // XLAT
+    "11010111 ",                                                (const char*)ValidateXLAT,                      (const char*)RegisterNumAX,     (const char*)0x80,        // XLAT
+    "001RR110 11010111 ",                                       (const char*)ValidateXLATPrefixed,              (const char*)RegisterNumAX,     (const char*)0,           // XLAT segment prefixed
+    "001RR110 11010111 ",                                       (const char*)ValidateXLATPrefixed,              (const char*)RegisterNumAX,     (const char*)0xFF,        // XLAT segment prefixed 
+    "001RR110 11010111 ",                                       (const char*)ValidateXLATPrefixed,              (const char*)RegisterNumAX,     (const char*)0x01,        // XLAT segment prefixed
+    "001RR110 11010111 ",                                       (const char*)ValidateXLATPrefixed,              (const char*)RegisterNumAX,     (const char*)0x80,        // XLAT segment prefixed
 #endif
-
-
+    
     // END MARKER
     0
 };

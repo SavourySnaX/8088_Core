@@ -208,6 +208,13 @@ begin
         PostEffectiveAddressReturn <= 9'h000;
         executionState <= 9'h1f5;
     end
+    else if (inst[7:3] == 5'b11011)                          // ESC rm
+    begin
+        instruction[0]<=1;                               // acts as if word operation
+        instruction[1]<=1;                               // acts as if direction is 1
+        PostEffectiveAddressReturn <= 9'h108;
+        executionState <= 9'h1f5;
+    end
     else if (inst[7:4] == 4'b1011)                            // MOV rrr,i
         executionState <= 9'h01C;
     else if (inst[7:1] == 7'b1100011)                         // MOV rm,i
@@ -244,6 +251,10 @@ begin
         executionState <= 9'h0E0;
     else if (inst == 8'b11100010)                        // LOOP
         executionState <= 9'h140;
+    else if (inst == 8'b10011110)                        // SAHF
+        executionState <= 9'h100;
+    else if (inst == 8'b10011111)                        // LAHF
+        executionState <= 9'h104;
     else if (inst == 8'b11111011)                        // STI (not microcoded)
     begin
         FLAGS[FLAG_I_IDX]<=1;
@@ -330,6 +341,8 @@ begin
         PostEffectiveAddressReturn <= 9'h00c;
         executionState <= 9'h1f5;
     end
+    else if (inst[7:0] == 8'b11010111)                    // XLAT
+        executionState <= 9'h10c;
     else if (inst[7:0] == 8'b11101000)                    // CALL cw
         executionState <= 9'h07c;
     else if (inst[7:0] == 8'b10011010)                    // CALL cd
@@ -2924,6 +2937,108 @@ begin
 
                         executionState<=9'h1ec; // WAIT continued
                     end
+
+//100 ABC  F HI  L  OPQRSTU                                                010011110.00  SAHF
+                9'h100:
+                    begin
+                        executionState<=9'h101;
+                    end
+//101   CD  GHIJ L  OPQRSTU       F     -> tmpa                                          
+                9'h101:
+                    begin
+                        // F->tmpa
+                        tmpa<=FLAGS;
+                        executionState<=9'h102;
+                    end
+//102   C EF     L  OPQRS U       X     -> tmpaL     4   none  NWB,NX                    
+                9'h102:
+                    begin
+                        // X->tmpaL
+                        tmpa[7:0]<=AX[15:8];
+                        executionState<=9'h103;
+                    end
+//103 ABCD  G I  L  OPQR          tmpa  -> F         4   none  RNI                       
+                9'h103:
+                    begin
+                        // tmpa->F RNI
+                        FLAGS<=tmpa;
+                        executionState<=9'h1fd; //RNI
+                    end
+
+//104 ABC  F HI  L  OPQRS U                          4   none  NWB,NX      010011111.00  LAHF
+                9'h104:
+                    begin
+                        executionState<=9'h105;
+                    end
+//105     E GHIJ L  OPQR          F     -> X         4   none  RNI                       
+                9'h105:
+                    begin
+                        // F->X RNI
+                        AX[15:8]<=FLAGS[7:0];
+                        executionState<=9'h1fd; //RNI
+                    end
+//106                                                                                    
+//107                                                                                    
+
+//108 ABC  F HI  L  OPQR                             4   none  RNI         011011???.00  ESC
+                9'h108:
+                    begin
+                        // RNI
+                        executionState<=9'h1fd; //RNI
+                    end
+//109                                                                                    
+//10a                                                                                    
+//10b                                                                                    
+
+//10c   CD F HIJ L  OPQRSTU       ZERO  -> tmpa                            011010111.00  XLAT
+                9'h10C:
+                    begin
+                        // ZERO->tmpa
+                        tmpa<=16'h0000;
+                        executionState<=9'h10d;
+                    end
+//10d   C EFG    L  OPQRSTU       XA    -> tmpaL                                         
+                9'h10D:
+                    begin
+                        // XA->tmpaL
+                        tmpa[7:0]<=AX[7:0];
+                        executionState<=9'h10e;
+                    end
+//10e A CD FGH J  M               HL    -> tmpb      1   ADD   tmpa                      
+                9'h10E:
+                    begin
+                        // HL->tmpb  ADD tmpa
+                        tmpb<=BX;
+                        selectShifter<=0;
+                        aluAselect<=2'b00;     // ALUA = tmpa
+                        aluBselect<=2'b01;     // ALUB = tmpb
+                        aluWord<=1;
+                        operation<=ALU_OP_ADD;
+                        executionState<=9'h10f;
+                    end
+//10f A C  F  I  LM    RSTU       SIGMA -> IND       6   R     DD,P0                     
+                9'h10F:
+                    begin
+                        // SIGMA->IND  R DD,P0
+                        IND<=SIGMA;
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=0;
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h110; 
+                    end
+//110    D    IJ L  OPQR          OPR   -> A         4   none  RNI         011010111.01  
+                9'h110:
+                    begin
+                        if ((indirectBusOpInProgress)==0)
+                        begin
+                            // OPR -> A RNI
+                            AX[7:0]<=OPRr[7:0];
+                            executionState<=9'h1fd; // RNI
+                        end
+                    end
+//111 ABC  F HI  L  OPQRSTU                                                              
 
 //112  BCD FGH    MN    S         BC    -> tmpc      1   PASS  tmpc                      RPTS
                 9'h112:
