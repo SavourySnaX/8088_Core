@@ -254,6 +254,12 @@ begin
         repeatFZ<=inst[0];
         executionState <= 9'h138;
     end
+    else if (inst == 8'b11001100)                        // INT 3
+        executionState <= 9'h1b0;
+    else if (inst == 8'b11001101)                        // INT ib
+        executionState <= 9'h1a8;
+    else if (inst == 8'b11001110)                        // INTO
+        executionState <= 9'h1ac;
     else if (inst == 8'b11100010)                        // LOOP
         executionState <= 9'h140;
     else if (inst == 8'b11100011)                        // JCXZ
@@ -4113,6 +4119,7 @@ begin
 
                         executionState<=9'h1fd; // RNI
                     end
+//17e ABC  F HI  L  OPQRSTU                                                              
 
 //17f   CD F HIJ  M O QRS         ZERO  -> tmpa      1   RRCY  tmpc                      CORX
                 9'h17F:
@@ -4362,6 +4369,20 @@ begin
                         // UNC 10
                         executionState<=9'h192;
                     end
+//198 A C EF  IJ   N    ST        CR    -> tmpbL     0   UNC      6        100000000.00  INT1  (trace)
+                9'h198:
+                    begin
+                        // CR->tmpbL  UNC 6
+                        tmpb[7:0]<=1;
+                        executionState<=9'h19e; //INTR
+                    end
+//199 A C EF  IJ   N    ST        CR    -> tmpbL     0   UNC      6                      INT2  (NMI)
+                9'h199:
+                    begin
+                        // CR->tmpbL  UNC 6
+                        tmpb[7:0]<=2;
+                        executionState<=9'h19e; //INTR
+                    end
 
 //19a  BCD FG    LM  P  STU       XA    -> tmpc      6   IRQ   D0,P0                     IRQ 
                 9'h19A:
@@ -4508,8 +4529,66 @@ begin
                     begin
                         // CR->tmpbL  UNC 6
                         tmpb[7:0]<=0;
-                        executionState<=9'h19e;
+                        executionState<=9'h19e; //INTR
                     end
+
+//1a8 A C E  HIJ L N    ST        Q     -> tmpbL     5   UNC   INTR        011001101.00  INT ib
+                9'h1A8:
+                    begin
+                        // Q->tmpbL
+                        if ((prefetchEmpty|indirectBusOpInProgress)==0)
+                        begin
+                            tmpb[7:0]<=prefetchTop;
+                            readTop<=1;
+                            executionState<=9'h19e; //INTR
+                        end
+                    end
+
+//1a9  BC   GHI  L N    ST        tmpb  -> OPR       5   UNC   INTR                      ???
+//1aa                                                                                    
+//1ab                                                                                    
+
+//1ac ABC  F HI  L  OPQRSTU                                                011001110.00  INTO
+                9'h1AC:
+                    begin
+                        executionState<=9'h1ad;
+                    end
+//1ad ABC  F HI     OP   TU                          0   OF       3                      
+                9'h1AD:
+                    begin
+                        // OF 3
+                        if (FLAGS[FLAG_O_IDX])
+                            executionState<=9'h1af;
+                        else
+                            executionState<=9'h1ae;
+                    end
+//1ae ABC  F HI  L  OPQR                             4   none  RNI                       
+                9'h1AE:
+                    begin
+                        executionState<=9'h1fd; // RNI
+                    end
+//1af A C EF  IJ L N    ST        CR    -> tmpbL     5   UNC   INTR                      
+                9'h1AF:
+                    begin
+                        // CR->tmpbL UNC INTR
+                        tmpb[7:0]<=4;
+                        executionState<=9'h19e; //INTR
+                    end
+//1b0 ABC  F HI    N     T                           0   UNC      2        011001100.00  INT 3
+                9'h1B0:
+                    begin
+                        // UNC 2
+                        executionState<=9'h1b2;
+                    end
+//1b1 ABC  F HI  L  OPQRSTU                                                              
+//1b2 A C EF  IJ L N    ST        CR    -> tmpbL     5   UNC   INTR                      
+                9'h1B2:
+                    begin
+                        // CR->tmpbL UNC INTR
+                        tmpb[7:0]<=3;
+                        executionState<=9'h19e; //INTR
+                    end
+//1b3                                                      
 
 //1b4 ABC  F  I  L  OPQRSTU       SIGMA -> no dest                         100100011.00  PREIDIV
                 9'h1B4:
@@ -5280,6 +5359,9 @@ begin
                         end
 
                     end
+
+//1fe   CD  G    L NOP  S U       A     -> tmpa      5   INT   FARCALL2                  ????
+//1ff  B D F H  KL N    ST        [  5] -> [ a]      5   UNC   INTR     F                ????
 
                 default:
                     begin 

@@ -3400,7 +3400,38 @@ int ValidateAAM(const char* testData, int counter, int testCnt, int regInitVal)
     return resultAL==expectedAL && resultAH==expectedAH;
 }
 
+int ValidateINTO(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    if (regInitVal==FLAG_O)
+    {
+        int vector = FetchReadMemory(1,0,4*4);
 
+        return ip==vector;
+    }
+    else
+    {
+        return ip==1;
+    }
+}               
+
+int ValidateINT3(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int vector = FetchReadMemory(1,0,3*4);
+
+    return ip==vector;
+}               
+
+int ValidateINTn(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int immediateValueL = Extract(testData,'L', counter, testCnt);
+
+    int ip = tb->top->biu->REGISTER_IP - tb->top->biu->qSize;
+    int vector = FetchReadMemory(1,0,immediateValueL*4);
+
+    return ip==vector;
+}               
 
 #define TEST_MULT 4
 
@@ -3611,6 +3642,10 @@ const char* testArray[]={
     "11010100 00000010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x0200,        // AAM
     "11010100 00000010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x0202,        // AAM
     "11010100 00000010 ",                                       (const char*)ValidateAAM,                       (const char*)RegisterNumAX,     (const char*)0x02FF,        // AAM
+    "11001110 ",                                                (const char*)ValidateINTO,                      (const char*)RegisterNumFlags,  (const char*)(0),           // INTO (overflow clr)
+    "11001110 ",                                                (const char*)ValidateINTO,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_O),      // INTO (overflow set)
+    "11001100 ",                                                (const char*)ValidateINT3,                      (const char*)RegisterNum,       (const char*)(0),           // INT3
+    "11001101 LLLLLLLL ",                                       (const char*)ValidateINTn,                      (const char*)RegisterNum,       (const char*)(0),           // INT n
 #endif
     // END MARKER
     0
