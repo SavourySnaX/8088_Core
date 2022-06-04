@@ -30,6 +30,8 @@
 int internalClock=CLK_DIVISOR;
 int ck=0;
 
+int readWriteFailure;
+
 uint32_t latchedAddress;
 int lastWrite=1,lastRead=1;
 Vtop *tb;
@@ -736,11 +738,13 @@ int FetchWrittenMemory(int word, int seg, int offset)
     if (firstAddress != readWriteLatchedAddress[captureIdx])
     {
         printf("Failed - First Address Mismatch : %05X!=%05X", firstAddress, readWriteLatchedAddress[captureIdx]);
+        readWriteFailure=1;
         return -1;
     }
     if (readWriteLatchedType[captureIdx]!=1)
     {
         printf("Failed - First Address Type Mismatch : %d!=%d", 1, readWriteLatchedType[captureIdx]);
+        readWriteFailure=1;
         return -1;
     }
     if (word)
@@ -748,11 +752,13 @@ int FetchWrittenMemory(int word, int seg, int offset)
         if (secondAddress != readWriteLatchedAddress[captureIdx+1])
         {
             printf("Failed - Second Address Mismatch : %05X!=%05X", secondAddress, readWriteLatchedAddress[captureIdx+1]);
+            readWriteFailure=1;
             return -1;
         }
         if (readWriteLatchedType[captureIdx+1]!=1)
         {
             printf("Failed - Second Address Type Mismatch : %d!=%d", 1, readWriteLatchedType[captureIdx+1]);
+            readWriteFailure=1;
             return -1;
         }
     }
@@ -781,11 +787,13 @@ int FetchReadMemory(int word, int seg, int offset)
     if (firstAddress != readWriteLatchedAddress[captureIdx])
     {
         printf("Failed - First Address Mismatch : %05X!=%05X", firstAddress, readWriteLatchedAddress[captureIdx]);
+        readWriteFailure=1;
         return -1;
     }
     if (readWriteLatchedType[captureIdx]!=1)
     {
         printf("Failed - First Address Type Mismatch : %d!=%d", 1, readWriteLatchedType[captureIdx]);
+        readWriteFailure=1;
         return -1;
     }
     if (word)
@@ -793,11 +801,13 @@ int FetchReadMemory(int word, int seg, int offset)
         if (secondAddress != readWriteLatchedAddress[captureIdx+1])
         {
             printf("Failed - Second Address Mismatch : %05X!=%05X", secondAddress, readWriteLatchedAddress[captureIdx+1]);
+            readWriteFailure=1;
             return -1;
         }
         if (readWriteLatchedType[captureIdx+1]!=1)
         {
             printf("Failed - Second Address Type Mismatch : %d!=%d", 1, readWriteLatchedType[captureIdx+1]);
+            readWriteFailure=1;
             return -1;
         }
     }
@@ -3052,6 +3062,244 @@ int ValidateXLATPrefixed(const char* testData, int counter, int testCnt, int reg
     return check==load;
 }
 
+int ValidateCMPS(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+
+    int segSrcA = FetchInitialSR(segOverride);
+    int offSrcA = RegisterNumInitialWord(ERegisterNum::SI);
+    int segSrcB = FetchInitialSR(ESRReg::ES);
+    int offSrcB = RegisterNumInitialWord(ERegisterNum::DI);
+    
+    int srcA = FetchReadMemory(word,segSrcA,offSrcA);
+    int srcB = FetchReadMemory(word,segSrcB,offSrcB);
+
+    int hSegSrcA = FetchSR(segOverride);
+    if (segSrcA != hSegSrcA)
+    {
+        printf("FAILED - Segment Source Register Mismatch : %04X != %04X\n", segSrcA, hSegSrcA);
+        return 0;
+    }
+    int hSegSrcB = FetchSR(ESRReg::ES);
+    if (segSrcB != hSegSrcB)
+    {
+        printf("FAILED - Segment Destination Register Mismatch : %04X != %04X\n", segSrcB, hSegSrcB);
+        return 0;
+    }
+    int hOffSrcA = tb->top->eu->SI;
+    int hOffSrcB = tb->top->eu->DI;
+    if (regInitVal==FLAG_D)
+    {
+        if (word)
+        {
+            offSrcA-=2;
+            offSrcB-=2;
+        }
+        else
+        {
+            offSrcA-=1;
+            offSrcB-=1;
+        }
+    }
+    else
+    {
+        if (word)
+        {
+            offSrcA+=2;
+            offSrcB+=2;
+        }
+        else
+        {
+            offSrcA+=1;
+            offSrcB+=1;
+        }
+    }
+    if (offSrcA != hOffSrcA)
+    {
+        printf("FAILED - Source Offset Mismatch : %04X != %04X\n", offSrcA, hOffSrcA);
+        return 0;
+    }
+    if (offSrcB != hOffSrcB)
+    {
+        printf("FAILED - Source Offset Mismatch : %04X != %04X\n", offSrcB, hOffSrcB);
+        return 0;
+    }
+
+    int result = srcA-srcB;
+    if (word)
+        return CheckSubResultW(srcA,srcB,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+    return CheckSubResultB(srcA,srcB,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+}
+
+int ValidateCMPSREP(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int z = Extract(testData,'Z',counter,testCnt);
+    int word = Extract(testData,'W',counter,testCnt);
+
+    int segSrcA = FetchInitialSR(segOverride);
+    int offSrcA = RegisterNumInitialWord(ERegisterNum::SI);
+    int segSrcB = FetchInitialSR(ESRReg::ES);
+    int offSrcB = RegisterNumInitialWord(ERegisterNum::DI);
+    
+    int count = RegisterNumInitialWord(ERegisterNum::CX);
+
+    int hSegSrcA = FetchSR(segOverride);
+    if (segSrcA != hSegSrcA)
+    {
+        printf("FAILED - Segment Source Register Mismatch : %04X != %04X\n", segSrcA, hSegSrcA);
+        return 0;
+    }
+    int hSegSrcB = FetchSR(ESRReg::ES);
+    if (segSrcB != hSegSrcB)
+    {
+        printf("FAILED - Segment Destination Register Mismatch : %04X != %04X\n", segSrcB, hSegSrcB);
+        return 0;
+    }
+
+    for (int a=0;a<regInitVal;a++)
+    {
+        int srcA = FetchReadMemory(word,segSrcA,offSrcA);
+        int srcB = FetchReadMemory(word,segSrcB,offSrcB);
+
+        if (word)
+        {
+            offSrcA+=2;
+            offSrcB+=2;
+        }
+        else
+        {
+            offSrcA+=1;
+            offSrcB+=1;
+        }
+        count--;
+
+        int result = srcA-srcB;
+        if (result==0 && z==0)
+            break;
+        if (result!=0 && z==1)
+            break;
+    }
+
+    int hOffSrcA = tb->top->eu->SI;
+    int hOffSrcB = tb->top->eu->DI;
+    if (offSrcA != hOffSrcA)
+    {
+        printf("FAILED - SourceA Offset Mismatch : %04X != %04X\n", offSrcA, hOffSrcA);
+        return 0;
+    }
+    if (offSrcB != hOffSrcB)
+    {
+        printf("FAILED - SourceB Offset Mismatch : %04X != %04X\n", offSrcB, hOffSrcB);
+        return 0;
+    }
+
+    int finalCX = FetchWordRegister(ERegisterNum::CX);
+    return (finalCX==(count&0xFFFF));
+}
+
+int ValidateSCAS(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int word = Extract(testData,'W',counter,testCnt);
+
+    int segSrcB = FetchInitialSR(ESRReg::ES);
+    int offSrcB = RegisterNumInitialWord(ERegisterNum::DI);
+    
+    int srcA = word ? RegisterNumInitialWord(ERegisterNum::AX) : RegisterNumInitialByte(ERegisterNum::AX);
+    int srcB = FetchReadMemory(word,segSrcB,offSrcB);
+
+    int hSegSrcB = FetchSR(ESRReg::ES);
+    if (segSrcB != hSegSrcB)
+    {
+        printf("FAILED - Segment Destination Register Mismatch : %04X != %04X\n", segSrcB, hSegSrcB);
+        return 0;
+    }
+    int hOffSrcB = tb->top->eu->DI;
+    if (regInitVal==FLAG_D)
+    {
+        if (word)
+        {
+            offSrcB-=2;
+        }
+        else
+        {
+            offSrcB-=1;
+        }
+    }
+    else
+    {
+        if (word)
+        {
+            offSrcB+=2;
+        }
+        else
+        {
+            offSrcB+=1;
+        }
+    }
+    if (offSrcB != hOffSrcB)
+    {
+        printf("FAILED - Source Offset Mismatch : %04X != %04X\n", offSrcB, hOffSrcB);
+        return 0;
+    }
+
+    int result = srcA-srcB;
+    if (word)
+        return CheckSubResultW(srcA,srcB,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+    return CheckSubResultB(srcA,srcB,FLAG_O|FLAG_S|FLAG_Z|FLAG_A|FLAG_P|FLAG_C,result);
+}
+
+int ValidateSCASREP(const char* testData, int counter, int testCnt, int regInitVal)
+{
+    int z = Extract(testData,'Z',counter,testCnt);
+    int word = Extract(testData,'W',counter,testCnt);
+
+    int segSrcB = FetchInitialSR(ESRReg::ES);
+    int offSrcB = RegisterNumInitialWord(ERegisterNum::DI);
+    
+    int count = RegisterNumInitialWord(ERegisterNum::CX);
+
+    int hSegSrcB = FetchSR(ESRReg::ES);
+    if (segSrcB != hSegSrcB)
+    {
+        printf("FAILED - Segment Destination Register Mismatch : %04X != %04X\n", segSrcB, hSegSrcB);
+        return 0;
+    }
+
+    int srcA = word ? RegisterNumInitialWord(ERegisterNum::AX) : RegisterNumInitialByte(ERegisterNum::AX);
+    for (int a=0;a<regInitVal;a++)
+    {
+        int srcB = FetchReadMemory(word,segSrcB,offSrcB);
+
+        if (word)
+        {
+            offSrcB+=2;
+        }
+        else
+        {
+            offSrcB+=1;
+        }
+        count--;
+
+        int result = srcA-srcB;
+        if (result==0 && z==0)
+            break;
+        if (result!=0 && z==1)
+            break;
+    }
+
+    int hOffSrcB = tb->top->eu->DI;
+    if (offSrcB != hOffSrcB)
+    {
+        printf("FAILED - SourceB Offset Mismatch : %04X != %04X\n", offSrcB, hOffSrcB);
+        return 0;
+    }
+
+    int finalCX = FetchWordRegister(ERegisterNum::CX);
+    return (finalCX==(count&0xFFFF));
+}
+
+
+
 #define TEST_MULT 4
 
 const char* testArray[]={ 
@@ -3231,8 +3479,15 @@ const char* testArray[]={
     "001RR110 11010111 ",                                       (const char*)ValidateXLATPrefixed,              (const char*)RegisterNumAX,     (const char*)0xFF,        // XLAT segment prefixed 
     "001RR110 11010111 ",                                       (const char*)ValidateXLATPrefixed,              (const char*)RegisterNumAX,     (const char*)0x01,        // XLAT segment prefixed
     "001RR110 11010111 ",                                       (const char*)ValidateXLATPrefixed,              (const char*)RegisterNumAX,     (const char*)0x80,        // XLAT segment prefixed
+    "1010011W ",                                                (const char*)ValidateCMPS,                      (const char*)RegisterNumFlags,  (const char*)0,           // CMPS (D clear)
+    "1010011W ",                                                (const char*)ValidateCMPS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // CMPS (D set)
+    "1111001Z 1010011W ",                                       (const char*)ValidateCMPSREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REPE/NE CMPS (CX==0)
+    "1111001Z 1010011W ",                                       (const char*)ValidateCMPSREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REPE/NE CMPS (CX==5)
+    "1010111W ",                                                (const char*)ValidateSCAS,                      (const char*)RegisterNumFlags,  (const char*)0,           // SCAS (D clear)
+    "1010111W ",                                                (const char*)ValidateSCAS,                      (const char*)RegisterNumFlags,  (const char*)(FLAG_D),    // SCAS (D set)
+    "1111001Z 1010111W ",                                       (const char*)ValidateSCASREP,                   (const char*)RegisterNumCX,     (const char*)0,           // REPE/NE SCAS (CX==0)
+    "1111001Z 1010111W ",                                       (const char*)ValidateSCASREP,                   (const char*)RegisterNumCX,     (const char*)5,           // REPE/NE SCAS (CX==5)
 #endif
-    
     // END MARKER
     0
 };
@@ -3401,7 +3656,9 @@ int Done(Vtop *tb, VerilatedVcdC* trace, int ticks)
             if (tb->top->eu->executionState == 0x1FD && tb->CLK==1 && (tb->top->eu->flush==0) && (tb->top->biu->suspending==0) && (tb->top->biu->indirectBusOpInProgress==0))
             {
                 captureIdx=0;
-                if (!((Validate)testArray[testPos*TEST_MULT+1])(testArray[testPos*TEST_MULT+0],currentTestCounter,currentTestCnt,(int)(intptr_t)testArray[testPos*TEST_MULT+3]))
+                readWriteFailure=0;
+                int vRes = ((Validate)testArray[testPos*TEST_MULT+1])(testArray[testPos*TEST_MULT+0],currentTestCounter,currentTestCnt,(int)(intptr_t)testArray[testPos*TEST_MULT+3]);
+                if (readWriteFailure!=0 || !vRes)
                 {
                     printf("\nERROR\n");
                     testState=99;
