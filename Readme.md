@@ -6,6 +6,11 @@ This is my development branch and thus contains the testbenches I use to verify 
 Don't expect the makefile to just work.
 
 Microcode Translation state :
-421 / 512 slots translated
+512 / 512 slots translated
+
+NMI not implemented yet
+TRACE not implemented yet
+
+Only external pins required by Konix Multisystem are hooked up.
 
 
