@@ -419,6 +419,46 @@ int TestMOVSInterrupted(Vtop *tb, VerilatedVcdC* trace,int& ticks)
 
 }
 
+int TestCMPSInterrupted(Vtop *tb, VerilatedVcdC* trace,int& ticks)
+{
+    printf("Testing CMPS instruction Vs Interrupt\n");
+    // Test Halt
+    ROM[0xFFFF0]=0xF3;  // REPE (memory contains 00s, so this will always repeat until CX==0)
+    ROM[0xFFFF1]=0xA6;  // CMPSB
+    ticks = Reset(tb,trace,ticks);
+    SetupInterruptVector();
+    SetupForRepMemory();
+    tb->top->eu->FLAGS=0;   // ensure interrupts masked
+
+    if (!CheckIRQ(tb,trace,ticks,"CMPS", 1))
+        return 0;
+
+    printf("OK\n");
+    return 1;
+
+}
+
+int TestSCASInterrupted(Vtop *tb, VerilatedVcdC* trace,int& ticks)
+{
+    printf("Testing SCAS instruction Vs Interrupt\n");
+    // Test Halt
+    ROM[0xFFFF0]=0xF3;  // REPE (memory contains 00s, so this will always repeat until CX==0)
+    ROM[0xFFFF1]=0xAE;  // SCASB
+    ticks = Reset(tb,trace,ticks);
+    tb->top->eu->AX=0x00;
+    SetupInterruptVector();
+    SetupForRepMemory();
+    tb->top->eu->FLAGS=0;   // ensure interrupts masked
+
+    if (!CheckIRQ(tb,trace,ticks,"SCAS", 1))
+        return 0;
+
+    printf("OK\n");
+    return 1;
+
+}
+
+
 int IrqWaitTestsMain(int argc, char** argv)
 {
     int returnCode=EXIT_SUCCESS;
@@ -443,7 +483,7 @@ int IrqWaitTestsMain(int argc, char** argv)
     tb->TEST_n=0;
 
     int ticks=1;
-
+    
     if (!TestWaitForTEST(tb,trace,ticks))
     {
         returnCode=EXIT_FAILURE;
@@ -479,6 +519,19 @@ int IrqWaitTestsMain(int argc, char** argv)
         returnCode=EXIT_FAILURE;
         goto end;
     }
+
+    if (!TestCMPSInterrupted(tb,trace,ticks))
+    {
+        returnCode=EXIT_FAILURE;
+        goto end;
+    }
+
+    if (!TestSCASInterrupted(tb,trace,ticks))
+    {
+        returnCode=EXIT_FAILURE;
+        goto end;
+    }
+
 end:
 #if TRACE
 	trace->close();

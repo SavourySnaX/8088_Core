@@ -335,6 +335,8 @@ begin
     end
     else if ({inst[7:4],inst[2:1]} == 6'b101010)           // LODS/MOVS
         executionState <= 9'h12c;
+    else if ({inst[7:4],inst[2:1]} == 6'b101011)           // CMPS/SCAS
+        executionState <= 9'h120;
     else if (inst[7:2] == 6'b100000)                       // alu rm,i
     begin
         readModifyWrite = 1;
@@ -3163,6 +3165,146 @@ begin
                             executionState<=9'h1f0; // STOS continue
                     end
 
+//120 ABC  F HI  LMNO Q   U                          7   F1    RPTS        01010?11?.00  CMPS/SCAS
+                9'h120:
+                    begin
+                        if (repeatF)
+                        begin
+                            PostEffectiveAddressReturn<=9'h121;
+                            executionState<=9'h112;
+                        end
+                        else
+                            executionState<=9'h121;
+                    end
+//121   CD F   J   N PQ S U       M     -> tmpa      0   X0       5                      
+                9'h121:
+                    begin
+                        // M->tmpa  X0 5
+                        tmpa<=AX;
+                        if (instruction[3]==1)
+                            executionState<= 9'h125;    // SCAS
+                        else
+                            executionState<=9'h122;
+
+                    end
+//122 A C  FG IJ LM    RS U       IJ    -> IND       6   R     DD,BL                     
+                9'h122:
+                    begin
+                        // IJ->IND  R DD,BL
+                        IND<=SI;
+                        indirect<=1;
+                        indirectSeg<=segPrefix;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h123;
+                    end
+//123  BCDE  HI  L  OPQRSTU       IND   -> IJ                                            
+                9'h123:
+                    begin
+                        // Adjusted IND value here - probably via BIU originally, for now, just do adjustment directly
+                        SI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
+                            
+                        executionState<=9'h124;
+                    end
+//124   CD    IJ L  OPQRSTU       OPR   -> tmpa                            01010?11?.01  
+                9'h124:
+                    begin
+                        if ((indirectBusOpInProgress)==0) 
+                        begin
+                            tmpa<=OPRr;
+                            executionState<=9'h125;
+                        end
+                    end
+//125 A C  FGHIJ LM       U       IK    -> IND       6   R     DA,BL                     
+                9'h125:
+                    begin
+                        // IK->IND  R DA,BL
+                        IND <= DI;
+                        indirect<=1;
+                        indirectSeg<=SEG_ES;
+                        ind_byteWord<=instruction[0];
+                        ind_ioMreq<=1;
+                        ind_readWrite<=0;
+                        executionState<=9'h126;
+                    end
+//126 A CD    IJ  M  P R          OPR   -> tmpb      1   SUBT  tmpa                      
+                9'h126:
+                    begin
+                        if ((indirectBusOpInProgress)==0)
+                        begin
+                            // Adjusted IND value here - probably via BIU originally, for now, just do adjustment directly
+                            DI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
+                            
+                            tmpb<=OPRr;
+                            
+                            selectShifter<=0;
+                            aluAselect<=2'b00;     // ALUA = tmpa
+                            aluBselect<=2'b01;     // ALUB = tmpb
+                            aluWord<=instruction[0];
+                            operation<=ALU_OP_SUB;
+
+                            executionState<=9'h127;
+                        end
+                    end
+//127 ABC  F  I K MNO  RS         SIGMA -> no dest   1   DEC   tmpc     F                
+                9'h127:
+                    begin
+                        // SIGMA->no dest  DEC tmpc  F
+                        
+                        selectShifter<=0;
+                        aluAselect<=2'b10;     // ALUA = tmpc
+                        aluWord<=1'b1;
+                        operation<=ALU_OP_DEC; // DEC
+
+                        // Flags update
+                        code_FLAGS=FLAG_O_MSK|FLAG_S_MSK|FLAG_Z_MSK|FLAG_A_MSK|FLAG_P_MSK|FLAG_C_MSK;
+
+                        executionState<=9'h128;
+                    end
+//128 ABCDE  HI    N  QRS         IND   -> IK        0   NF1     12        01010?11?.10  
+                9'h128:
+                    begin
+                        // IND->IK  NF1 12
+                        // Adjusted IND value here - probably via BIU originally, for now, just do adjustment directly
+                        DI <= FLAGS[FLAG_D_IDX]==0 ? IND + (instruction[0]?2:1) : IND - (instruction[0]?2:1);
+                        
+                        if (~repeatF)
+                            executionState<= 9'h1f4;    //CMPS/SCAS continued
+                        else
+                            executionState<=9'h129;
+                    end
+//129 A  DEF  I        RS         SIGMA -> BC        0   F1ZZ    12                      
+                9'h129:
+                    begin
+                        // SIGMA->BC  F1ZZ 12
+                        CX<=SIGMA;
+                        carryIn<=fz;    // Latch zero flag for later test
+                        if (FLAGS[FLAG_Z_IDX]!=repeatFZ)
+                            executionState<= 9'h1f4;    //CMPS/SCAS continued
+                        else
+                            executionState<=9'h12a;
+
+                    end
+//12a  BCD F  I  L NOP R          SIGMA -> tmpc      5   INT   RPTI                      
+                9'h12a:
+                    begin
+                        // SIGMA->tmpc  INT RPTI
+                        tmpc<=SIGMA;
+                        if (irqPending & FLAGS[FLAG_I_IDX]) // TODO NMI
+                            executionState<=9'h118; //RPTI
+                        else
+                            executionState<=9'h12b;
+                    end
+//12b ABC  F HI    N P    U                          0   NZ       1                      
+                9'h12b:
+                    begin
+                        if (carryIn==0) // if CX is not zero (latched in 129)
+                            executionState<=9'h121;
+                        else
+                            executionState<=9'h1f4;     //CMPS/SCAS continued
+                    end
+
 //12c ABC  F HI  LMNO Q   U                          7   F1    RPTS        01010?10?.00  MOVS/LODS
                 9'h12C:
                     begin
@@ -3177,6 +3319,7 @@ begin
 //12d A C  FG IJ LM    RS U       IJ    -> IND       6   R     DD,BL                     
                 9'h12D:
                     begin
+                        // IJ->IND  R DD,BL
                         IND<=SI;
                         indirect<=1;
                         indirectSeg<=segPrefix;
@@ -4673,6 +4816,11 @@ begin
                         end
                     end
 
+//1f4 ABC  F HI  L  OPQR                             4   none  RNI         01010?11?.11  CMPS/SCAS continued
+                9'h1F4:
+                    begin
+                        executionState<=9'h1fd; //RNI
+                    end
 
 //1f5 (NOT REAL mOP) Q -> MODRM
                 9'h1F5:
